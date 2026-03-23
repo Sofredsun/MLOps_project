@@ -58,7 +58,3 @@
 | 6 | 13.00 – 13.45 |
 | 7 | 14.00 – 14.45 |
 |  | 15.15 - внеурочная деятельность |
-
-📄 [Скачать...](http://saki-school2.ucoz.ru/Raspisanie/kalendar_na_2025_2026_u.g..pdf)
-📄 [Посмотреть...](http://saki-school2.ucoz.ru/Raspisanie/raspisan_1_pol_25-26_nach.shk..pdf)
-📄 [Посмотреть...](http://saki-school2.ucoz.ru/Raspisanie/raspisan_1_pol_25-26_osn.shk..pdf)
