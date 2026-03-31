@@ -1,3 +1,4 @@
 chroma_langchain_db/
 venv/
 .ipynb_checkpoints
+src/.idea/

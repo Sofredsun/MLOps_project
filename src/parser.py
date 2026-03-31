@@ -17,8 +17,8 @@ from datetime import datetime
 from collections import deque
 
 BASE_URL = "http://saki-school2.ucoz.ru"
-OUTPUT_DIR = "school_knowledge_base/pages"
-DOCS_DIR = "school_knowledge_base/docs"
+OUTPUT_DIR = "../data/school_knowledge_base/pages"
+DOCS_DIR = "../data/school_knowledge_base/docs"
 DELAY = 1.2
 PDF_MIN_CHARS = 100
 
