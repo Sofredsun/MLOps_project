@@ -18,11 +18,11 @@
 4. Создайте ядро для Jupyter Notebook
     ```bash
     python -m ipykernel install --user --name mlops_project
-5. Чтобы запустить процесс парсинга сайта и наполнить папку `school_knowledge_database` свежими файлами, выполните
+5. Чтобы запустить процесс парсинга сайта и наполнить папку `data/school_knowledge_base` свежими файлами, выполните
     ```bash
-    python Parser.py
+    python src/parser.py
 6. Чтобы посмотреть результаты анализа текстов, запустите Jupyter:
     ```bash
     jupyter notebook
     ```
-    Затем в Jupyter-е откройте `jupyter/01_eda.ipynb`, выберите ядро `mlops_project` и выполните весь код
+    Затем в Jupyter-е откройте `notebooks/01_eda.ipynb`, выберите ядро `mlops_project` и выполните весь код
