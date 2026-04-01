@@ -7,9 +7,10 @@ import time
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
+DATA_DIR = 'data/school_knowledge_base'
 CHROMA_DIR = 'chroma_langchain_db'
-AVAILABLE_MODELS = ['qwen2.5:7b', 'llama3.2']
 
+AVAILABLE_MODELS = ['qwen2.5:7b', 'llama3.2']
 
 @st.cache_resource
 def load_knowledge_base():
@@ -67,9 +68,27 @@ def main():
         st.info(f"Модель: {selected_model}")
         st.info("База: ChromaDB (multilingual-e5-small)")
         
-        # Количество документов из базы при поиске
-        k_retrieval = st.slider("Документов для поиска (K)", 1, 12, 8)
+        k_retrieval = st.slider("Количество документов для поиска", 1, 12, 8)
 
+        st.divider()
+        
+        # Список готовых вопросов для быстрого старта
+        st.subheader("Примеры вопросов")
+        example_questions = [
+            "Во сколько начинается первый урок?",
+            "Когда весенние каникулы?",
+            "Зачем нужна внеурочная деятельность?",
+            "Как связаться с директором?",
+            "Что на завтрак в 5 классе?",
+            "Какие правила поведения для родителей?",
+        ]
+        
+        # При клике на кнопку сохраняем вопрос в session_state, 
+        # он будет подставлен в поле ввода как будто пользователь написал его сам
+        for eq in example_questions:
+            if st.button(eq, use_container_width=True):
+                st.session_state["prefill_question"] = eq
+                
         st.divider()
         if st.button("Очистить историю", use_container_width=True):
             st.session_state.messages = []
@@ -81,8 +100,19 @@ def main():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            # Если в сообщении ассистента есть источники, то показываем их в раскрывающемся блоке
+            if "sources" in message and message["sources"]:
+                with st.expander("Источники"):
+                    for idx, source in enumerate(message["sources"]):
+                        st.markdown(f"**{idx + 1}. {source['source']}**")
+                        st.caption(source['content'][:300] + "...")
+
+    prefill = st.session_state.pop("prefill_question", None)
 
     question = st.chat_input("Задайте вопрос по базе знаний школы...")
+
+    if prefill and not question:
+        question = prefill
 
     if question:
         st.session_state.messages.append({"role": "user", "content": question})
@@ -125,11 +155,27 @@ def main():
                         message_placeholder.markdown(full_response + "▌")
                     message_placeholder.markdown(full_response)
                     
+                    sources_data = [
+                        {
+                            "source": doc.metadata.get("source", "Неизвестно"),
+                            "content": doc.page_content
+                        }
+                        for doc in docs
+                    ]
+                    
                     # Сохраняем ответ ассистента в историю
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": full_response
+                        "content": full_response,
+                        "sources": sources_data
                     })
+                    
+                    with st.expander("Найденные фрагменты документов"):
+                        for idx, doc in enumerate(docs):
+                            st.markdown(f"**Фрагмент {idx + 1}:** `{doc.metadata.get('source', 'Неизвестно')}`")
+                            st.caption(doc.page_content[:400] + "...")
+                            if idx < len(docs) - 1:
+                                st.divider()
 
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
