@@ -8,10 +8,15 @@ import time
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
 CHROMA_DIR = 'chroma_langchain_db'
-DEFAULT_MODEL = 'qwen2.5:7b'
+AVAILABLE_MODELS = ['qwen2.5:7b', 'llama3.2']
+
 
 @st.cache_resource
 def load_knowledge_base():
+    """
+    Загружает векторную базу знаний. 
+    Кешируется при первом запуске.
+    """
     embeddings = HuggingFaceEmbeddings(
         model_name="intfloat/multilingual-e5-small",
         model_kwargs={'device': 'cpu'}
@@ -24,6 +29,7 @@ def load_knowledge_base():
     return vector_store
 
 
+# Шаблон промпта для языковой модели
 TEMPLATE = """Вы — экспертный аналитик базы знаний школы. 
 Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
 
@@ -47,6 +53,27 @@ def main():
         "RAG-система для быстрого поиска информации по базе знаний школы: "
         "расписание, питание, правила, контакты и многое другое."
     )
+    
+    # Боковая панель с настройками
+    with st.sidebar:
+        st.header("Настройки")
+        
+        # Выбор языковой модели
+        selected_model = st.selectbox(
+            "Языковая модель",
+            options=AVAILABLE_MODELS,
+            index=0
+        )
+        st.info(f"Модель: {selected_model}")
+        st.info("База: ChromaDB (multilingual-e5-small)")
+        
+        # Количество документов из базы при поиске
+        k_retrieval = st.slider("Документов для поиска (K)", 1, 12, 8)
+
+        st.divider()
+        if st.button("Очистить историю", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -68,31 +95,37 @@ def main():
 
             with st.spinner("Ищу информацию в базе знаний..."):
                 try:
+                    # Загружаем базу знаний и инициализируем модель
                     vector_store = load_knowledge_base()
-                    model = OllamaLLM(model=DEFAULT_MODEL, temperature=0.1)
-
+                    model = OllamaLLM(model=selected_model, temperature=0.1)
+                    
+                    # Настраиваем retriever для поиска похожих документов
                     retriever = vector_store.as_retriever(
                         search_type="similarity",
-                        search_kwargs={"k": 8}
+                        search_kwargs={"k": k_retrieval}
                     )
 
                     prompt = ChatPromptTemplate.from_template(TEMPLATE)
                     chain = prompt | model
-
+                    
+                    # Извлекаем релевантные документы и формируем контекст
                     docs = retriever.invoke(question)
                     context_text = "\n\n".join([
                         f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
                         for d in docs
                     ])
-
+                    
+                    # Ответ от модели
                     response = chain.invoke({"context": context_text, "question": question})
-
+                    
+                    # Вывод ответа с эффектом печатания
                     for chunk in response.split():
                         full_response += chunk + " "
                         time.sleep(0.02)
                         message_placeholder.markdown(full_response + "▌")
                     message_placeholder.markdown(full_response)
-
+                    
+                    # Сохраняем ответ ассистента в историю
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": full_response
