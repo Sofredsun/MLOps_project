@@ -1,4 +1,8 @@
 chroma_langchain_db/
+chroma_db/
 venv/
 .ipynb_checkpoints
 src/.idea/
+mlflow.db  
+mlartifacts/
+.vscode/
