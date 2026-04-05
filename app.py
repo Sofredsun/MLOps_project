@@ -4,6 +4,10 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 import time
+import mlflow
+
+mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_experiment("School_RAG_System")
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
@@ -124,62 +128,76 @@ def main():
             full_response = ""
 
             with st.spinner("Ищу информацию в базе знаний..."):
-                try:
-                    # Загружаем базу знаний и инициализируем модель
-                    vector_store = load_knowledge_base()
-                    model = OllamaLLM(model=selected_model, temperature=0.1)
-                    
-                    # Настраиваем retriever для поиска похожих документов
-                    retriever = vector_store.as_retriever(
-                        search_type="similarity",
-                        search_kwargs={"k": k_retrieval}
-                    )
+                with mlflow.start_run(run_name=f"Query_{time.strftime('%H%M%S')}"):
+                    try:
+                        start_time = time.time()
+                        
+                        mlflow.log_param("model", selected_model)
+                        mlflow.log_param("k_retrieval", k_retrieval)
+                        mlflow.log_param("question", question)
+                        mlflow.log_param("embedding_model", "multilingual-e5-small")
 
-                    prompt = ChatPromptTemplate.from_template(TEMPLATE)
-                    chain = prompt | model
-                    
-                    # Извлекаем релевантные документы и формируем контекст
-                    docs = retriever.invoke(question)
-                    context_text = "\n\n".join([
-                        f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
-                        for d in docs
-                    ])
-                    
-                    # Ответ от модели
-                    response = chain.invoke({"context": context_text, "question": question})
-                    
-                    # Вывод ответа с эффектом печатания
-                    for chunk in response.split():
-                        full_response += chunk + " "
-                        time.sleep(0.02)
-                        message_placeholder.markdown(full_response + "▌")
-                    message_placeholder.markdown(full_response)
-                    
-                    sources_data = [
-                        {
-                            "source": doc.metadata.get("source", "Неизвестно"),
-                            "content": doc.page_content
-                        }
-                        for doc in docs
-                    ]
-                    
-                    # Сохраняем ответ ассистента в историю
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": full_response,
-                        "sources": sources_data
-                    })
-                    
-                    with st.expander("Найденные фрагменты документов"):
-                        for idx, doc in enumerate(docs):
-                            st.markdown(f"**Фрагмент {idx + 1}:** `{doc.metadata.get('source', 'Неизвестно')}`")
-                            st.caption(doc.page_content[:400] + "...")
-                            if idx < len(docs) - 1:
-                                st.divider()
+                        # Загружаем базу знаний и инициализируем модель
+                        vector_store = load_knowledge_base()
+                        model = OllamaLLM(model=selected_model, temperature=0.1)
+                        
+                        # Настраиваем retriever для поиска похожих документов
+                        retriever = vector_store.as_retriever(
+                            search_type="similarity",
+                            search_kwargs={"k": k_retrieval}
+                        )
 
-                except Exception as e:
-                    st.error(f"Ошибка: {e}")
-                    st.info("Убедитесь, что Ollama запущена и ChromaDB находится по пути chroma_langchain_db")
+                        prompt = ChatPromptTemplate.from_template(TEMPLATE)
+                        chain = prompt | model
+                        
+                        # Извлекаем релевантные документы и формируем контекст
+                        docs = retriever.invoke(question)
+                        context_text = "\n\n".join([
+                            f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
+                            for d in docs
+                        ])
+                        
+                        # Ответ от модели
+                        response = chain.invoke({"context": context_text, "question": question})
+
+                        latency = time.time() - start_time
+                        mlflow.log_metric("latency", latency)
+                        mlflow.log_metric("context_length", len(context_text))
+            
+                        mlflow.log_text(response, "assistant_response.txt")
+                        
+                        # Вывод ответа с эффектом печатания
+                        for chunk in response.split():
+                            full_response += chunk + " "
+                            time.sleep(0.02)
+                            message_placeholder.markdown(full_response + "▌")
+                        message_placeholder.markdown(full_response)
+                        
+                        sources_data = [
+                            {
+                                "source": doc.metadata.get("source", "Неизвестно"),
+                                "content": doc.page_content
+                            }
+                            for doc in docs
+                        ]
+                        
+                        # Сохраняем ответ ассистента в историю
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": full_response,
+                            "sources": sources_data
+                        })
+                        
+                        with st.expander("Найденные фрагменты документов"):
+                            for idx, doc in enumerate(docs):
+                                st.markdown(f"**Фрагмент {idx + 1}:** `{doc.metadata.get('source', 'Неизвестно')}`")
+                                st.caption(doc.page_content[:400] + "...")
+                                if idx < len(docs) - 1:
+                                    st.divider()
+
+                    except Exception as e:
+                        st.error(f"Ошибка: {e}")
+                        st.info("Убедитесь, что Ollama запущена и ChromaDB находится по пути chroma_langchain_db")
 
 
 if __name__ == "__main__":
