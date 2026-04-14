@@ -15,10 +15,14 @@ import hashlib
 from urllib.parse import urljoin, urlparse, urlunparse
 from datetime import datetime
 from collections import deque
+from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 BASE_URL = "http://saki-school2.ucoz.ru"
-OUTPUT_DIR = "../data/school_knowledge_base/pages"
-DOCS_DIR = "../data/school_knowledge_base/docs"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "school_knowledge_base" / "pages"
+DOCS_DIR = PROJECT_ROOT / "data" / "school_knowledge_base" / "docs"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
 DELAY = 1.2
 PDF_MIN_CHARS = 100
 
