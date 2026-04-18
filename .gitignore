@@ -12,14 +12,12 @@ mlartifacts/
 mlflow.db
 *.pkl
 *.pickle
-chroma_langchain_db/
 .dvc.lock
 
 # Data (большие файлы управляются через DVC)
 data/processed/
 data/chunks/
 data/models/
-*.dvc
 
 # Виртуальные окружения
 venv/
@@ -42,3 +40,8 @@ env
 # OS
 .DS_Store
 Thumbs.db
+/data
+/chroma_langchain_db
+
+gdrive_key.json
+gdrive_oauth_key.json
