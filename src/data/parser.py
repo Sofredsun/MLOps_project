@@ -46,7 +46,8 @@ TARGET_PAGES = [
         False,
     ),
     (
-        "http://saki-school2.ucoz.ru/index/struktura_i_organy_upravlenija_obrazovatelnoj_organizaciej/0-59",
+        "http://saki-school2.ucoz.ru/index/"
+        "struktura_i_organy_upravlenija_obrazovatelnoj_organizaciej/0-59",
         "структура_и_органы_управления",
         False,
     ),
@@ -61,12 +62,15 @@ TARGET_PAGES = [
         False,
     ),
     (
-        "http://saki-school2.ucoz.ru/index/materialno_tekhnicheskoe_obespechenie_i_osnashhennost_obrazovatelnogo_processa/0-56",
+        "http://saki-school2.ucoz.ru/index/"
+        "materialno_tekhnicheskoe_obespechenie_i_osnashhennost_obrazovatelnogo_processa"
+        "/0-56",
         "материально_техническое",
         False,
     ),
     (
-        "http://saki-school2.ucoz.ru/index/organizacija_pitanija_v_obrazovatelnoj_organizacii/0-173",
+        "http://saki-school2.ucoz.ru/index/"
+        "organizacija_pitanija_v_obrazovatelnoj_organizacii/0-173",
         "питание",
         True,
     ),
@@ -255,7 +259,10 @@ def get_page(url: str, session: requests.Session):
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:
-    """Извлекает текст из байтов PDF через pdfminer. Возвращает пустую строку при ошибке."""
+    """
+    Извлекает текст из байтов PDF через pdfminer.
+    Возвращает пустую строку при ошибке.
+    """
     try:
         import io
 
@@ -704,7 +711,7 @@ def crawl(session: requests.Session) -> list[dict]:
 
             if section_count >= 15:
                 print(
-                    f"    [лимит 15 стр. на раздел достигнут, пропущено ~{len(queue)} URL]"
+                    f"[лимит 15 стр. на раздел достигнут, пропущено ~{len(queue)} URL]"
                 )
 
         else:
@@ -774,13 +781,13 @@ def main():
     session = requests.Session()
     session.max_redirects = 10
 
-    pages = crawl(session)
+    # _pages = crawl(session)
 
-    md_count = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".md")])
-    pdf_count = len([f for f in os.listdir(DOCS_DIR) if f.endswith(".pdf")])
+    # _md_count = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".md")])
+    # _pdf_count = len([f for f in os.listdir(DOCS_DIR) if f.endswith(".pdf")])
 
     print("\n" + "=" * 65)
-    print(f"Готово!")
+    print("Готово!")
 
 
 if __name__ == "__main__":

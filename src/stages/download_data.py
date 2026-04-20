@@ -1,10 +1,3 @@
-"""
-Stage 1: Data Loading and Preprocessing
-Скрипт для загрузки документов из папки data/ и их предварительной обработки.
-Входные данные: PDF и Markdown файлы
-Выходные данные: Обработанные документы
-"""
-
 import json
 import os
 import re
@@ -15,11 +8,18 @@ from typing import List, Tuple
 import pymupdf4llm
 from langchain_core.documents import Document
 
+from utils.config import STAGE1
+
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import STAGE1
+"""
+Stage 1: Data Loading and Preprocessing
+Скрипт для загрузки документов из папки data/ и их предварительной обработки.
+Входные данные: PDF и Markdown файлы
+Выходные данные: Обработанные документы
+"""
 
 DATA_DIR = STAGE1.paths.DATA_DIR
 OUTPUT_DIR = STAGE1.paths.PROCESSED_DIR

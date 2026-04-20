@@ -1,9 +1,3 @@
-"""
-Stage 3: Evaluation and Model Testing
-Скрипт для создания эмбеддингов, инициализации ChromaDB,
-генерации ответов и оценки качества модели.
-"""
-
 import json
 import pickle
 import sys
@@ -23,11 +17,18 @@ from langchain_ollama import OllamaLLM
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
+from utils.config import PATHS, STAGE3
+
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import PATHS, STAGE3
+
+"""
+Stage 3: Evaluation and Model Testing
+Скрипт для создания эмбеддингов, инициализации ChromaDB,
+генерации ответов и оценки качества модели.
+"""
 
 TRAIN_DIR = PATHS.TRAIN_DIR
 VAL_DIR = PATHS.VAL_DIR
@@ -121,7 +122,7 @@ def test_rag_system(
         models = AVAILABLE_LLM_MODELS
 
     results = []
-    template = """Вы — экспертный аналитик базы знаний школы. 
+    template = """Вы — экспертный аналитик базы знаний школы.
 Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
 
 КОНТЕКСТ:
@@ -168,7 +169,8 @@ def test_rag_system(
 
                     context_text = "\n\n".join(
                         [
-                            f"[Источник: {doc.metadata.get('source', 'Unknown')}]\n{doc.page_content}"
+                            f"[Источник: {doc.metadata.get('source', 'Unknown')}]"
+                            f"\n{doc.page_content}"
                             for doc in retrieved_docs
                         ]
                     )
@@ -229,7 +231,7 @@ def test_rag_system(
                             "error": True,
                         }
                     )
-            valid_lat = [l for l in lat_list if l > 0]
+            valid_lat = [lines for lines in lat_list if lines > 0]
             mlflow.log_metric("avg_semantic_similarity", float(np.mean(sim_list)))
             mlflow.log_metric("avg_faithfulness", float(np.mean(faith_list)))
             mlflow.log_metric("min_similarity", float(np.min(sim_list)))
@@ -297,10 +299,12 @@ def save_results(results: List[Dict[str, Any]], metrics: Dict[str, Any]) -> None
     for model, m in metrics.items():
         print(f"\n🔹 {model}")
         print(
-            f"   Успешно: {m['successful']}/{m['total_tests']} (ошибок: {m['error_rate'] * 100:.1f}%)"
+            f"   Успешно: {m['successful']}/{m['total_tests']} "
+            f"(ошибок: {m['error_rate'] * 100:.1f}%)"
         )
         print(
-            f"   Avg Similarity: {m['avg_semantic_similarity']:.3f} | Min: {m['min_similarity']:.3f}"
+            f"   Avg Similarity: {m['avg_semantic_similarity']:.3f} | "
+            f"Min: {m['min_similarity']:.3f}"
         )
         print(f"   Avg Faithfulness: {m['avg_faithfulness']:.3f}")
         print(f"   Avg Latency: {m['avg_latency']:.3f}s")

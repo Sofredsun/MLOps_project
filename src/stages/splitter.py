@@ -1,10 +1,3 @@
-"""
-Stage 2: Data Splitting and Chunking
-Скрипт для разделения документов на чанки и их распределения на train/validation наборы.
-Входные данные: Обработанные документы от stage 1
-Выходные данные: Training Data и Validation Data
-"""
-
 import json
 import os
 import pickle
@@ -20,11 +13,19 @@ from langchain_text_splitters import (
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
+from utils.config import PATHS, STAGE2
+
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import PATHS, STAGE2
+
+"""
+Stage 2: Data Splitting and Chunking
+Скрипт для разделения документов на чанки и их распределения на train/validation наборы.
+Входные данные: Обработанные документы от stage 1
+Выходные данные: Training Data и Validation Data
+"""
 
 PDF_CHUNK_SIZE = STAGE2.PDF_CHUNK_SIZE
 PDF_CHUNK_OVERLAP = STAGE2.PDF_CHUNK_OVERLAP
@@ -208,7 +209,8 @@ def main():
 
     # Разделяем чанки на train/val
     print(
-        f"\n Разделяю на training ({int(TRAIN_TEST_SPLIT*100)}%) и validation ({int((1-TRAIN_TEST_SPLIT)*100)}%)..."
+        f"\n Разделяю на training ({int(TRAIN_TEST_SPLIT*100)}%) и validation "
+        f"({int((1-TRAIN_TEST_SPLIT)*100)}%)..."
     )
     train_chunks, val_chunks = split_chunks_train_test(
         all_chunks, train_size=TRAIN_TEST_SPLIT

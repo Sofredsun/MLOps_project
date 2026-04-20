@@ -36,7 +36,7 @@ def load_knowledge_base():
 
 
 # Шаблон промпта для языковой модели
-TEMPLATE = """Вы — экспертный аналитик базы знаний школы. 
+TEMPLATE = """Вы — экспертный аналитик базы знаний школы.
 Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
 
 КОНТЕКСТ:
@@ -45,8 +45,10 @@ TEMPLATE = """Вы — экспертный аналитик базы знани
 ВОПРОС: {question}
 
 ИНСТРУКЦИЯ:
-1. Проанализируй контекст. Если информация представлена в виде списка, таблицы или расписания — изучи каждую строку.
-2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"), используй их для ответа.
+1. Проанализируй контекст. Если информация представлена в виде списка,
+таблицы или расписания — изучи каждую строку.
+2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"),
+используй их для ответа.
 3. Если ответ найден частично, напиши то, что удалось найти.
 4. Сначала кратко опиши, что ты нашел в документах, а затем дай итоговый ответ.
 
@@ -103,12 +105,13 @@ def main():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            # Если в сообщении ассистента есть источники, то показываем их в раскрывающемся блоке
+            # Если в сообщении ассистента есть источники,
+            # то показываем их в раскрывающемся блоке
             if "sources" in message and message["sources"]:
                 with st.expander("Источники"):
                     for idx, source in enumerate(message["sources"]):
-                        st.markdown(f"**{idx + 1}. {source['source']}**")
-                        st.caption(source["content"][:300] + "...")
+                        st.markdown(f"**{idx + 1}.{source['source']}**")  # type: ignore
+                        st.caption(source["content"][:300] + "...")  # type: ignore
 
     prefill = st.session_state.pop("prefill_question", None)
 
@@ -152,7 +155,8 @@ def main():
                         docs = retriever.invoke(question)
                         context_text = "\n\n".join(
                             [
-                                f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
+                                f"[Источник {d.metadata.get('source', 'Неизвестно')}]\n"
+                                f"{d.page_content}"
                                 for d in docs
                             ]
                         )
@@ -195,7 +199,9 @@ def main():
                         with st.expander("Найденные фрагменты документов"):
                             for idx, doc in enumerate(docs):
                                 st.markdown(
-                                    f"**Фрагмент {idx + 1}:** `{doc.metadata.get('source', 'Неизвестно')}`"
+                                    f"**Фрагмент {idx + 1}:** `{doc.metadata.get(
+                                        'source', 'Неизвестно'
+                                    )}`"
                                 )
                                 st.caption(doc.page_content[:400] + "...")
                                 if idx < len(docs) - 1:
@@ -204,7 +210,8 @@ def main():
                     except Exception as e:
                         st.error(f"Ошибка: {e}")
                         st.info(
-                            "Убедитесь, что Ollama запущена и ChromaDB находится по пути chroma_langchain_db"
+                            "Убедитесь, что Ollama запущена и ChromaDB находится "
+                            "по пути chroma_langchain_db"
                         )
 
 
