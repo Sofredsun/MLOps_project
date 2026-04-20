@@ -25,7 +25,7 @@ jobs:
         run: black --check src/ app.py
 
       - name: Check imports with isort
-        run: isort --check-only src/ app.py
+        run: isort --check-only --profile black src/ app.py
 
       - name: Lint with flake8
         run: flake8 src/ app.py --max-line-length=88 --extend-ignore=E203

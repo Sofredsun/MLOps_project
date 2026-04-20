@@ -5,14 +5,15 @@ Stage 1: Data Loading and Preprocessing
 Выходные данные: Обработанные документы
 """
 
+import json
 import os
 import re
-import json
-import pymupdf4llm
-from typing import List, Tuple
-from langchain_core.documents import Document
 import sys
 from pathlib import Path
+from typing import List, Tuple
+
+import pymupdf4llm
+from langchain_core.documents import Document
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:

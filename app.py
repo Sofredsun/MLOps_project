@@ -1,10 +1,11 @@
+import time
+
+import mlflow
 import streamlit as st
-from langchain_ollama.llms import OllamaLLM
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
-import time
-import mlflow
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama.llms import OllamaLLM
 
 mlflow.set_tracking_uri("http://localhost:5000")
 mlflow.set_experiment("School_RAG_System")

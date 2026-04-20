@@ -5,10 +5,13 @@ Stage 2: Data Splitting and Chunking
 Выходные данные: Training Data и Validation Data
 """
 
-import os
 import json
+import os
 import pickle
+import sys
+from pathlib import Path
 from typing import List, Tuple, Dict, Any
+
 from langchain_core.documents import Document
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -16,8 +19,6 @@ from langchain_text_splitters import (
 )
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-import sys
-from pathlib import Path
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:

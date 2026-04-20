@@ -6,16 +6,17 @@ PDF-файлы скачиваются в school_knowledge_base/docs/
 Сканы (без текстового слоя) пропускаются
 """
 
+import hashlib
+import os
+import re
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urljoin, urlparse, urlunparse
+
 import requests
 from bs4 import BeautifulSoup, Tag
-import re
-import os
-import time
-import hashlib
-from urllib.parse import urljoin, urlparse, urlunparse
-from datetime import datetime
-from collections import deque
-from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 BASE_URL = "http://saki-school2.ucoz.ru"
