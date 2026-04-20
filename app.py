@@ -199,9 +199,8 @@ def main():
                         with st.expander("Найденные фрагменты документов"):
                             for idx, doc in enumerate(docs):
                                 st.markdown(
-                                    f"**Фрагмент {idx + 1}:** `{doc.metadata.get(
-                                        'source', 'Неизвестно'
-                                    )}`"
+                                    f"**Фрагмент {idx + 1}:** "
+                                    f"`{doc.metadata.get('source', 'Неизвестно')}`"
                                 )
                                 st.caption(doc.page_content[:400] + "...")
                                 if idx < len(docs) - 1:
