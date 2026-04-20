@@ -10,7 +10,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import mlflow
 import numpy as np
@@ -27,7 +27,7 @@ _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import STAGE3, PATHS
+from utils.config import PATHS, STAGE3
 
 TRAIN_DIR = PATHS.TRAIN_DIR
 VAL_DIR = PATHS.VAL_DIR

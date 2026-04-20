@@ -10,12 +10,12 @@ import os
 import pickle
 import sys
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict, List, Tuple
 
 from langchain_core.documents import Document
 from langchain_text_splitters import (
-    RecursiveCharacterTextSplitter,
     MarkdownHeaderTextSplitter,
+    RecursiveCharacterTextSplitter,
 )
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -24,7 +24,7 @@ _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import STAGE2, PATHS
+from utils.config import PATHS, STAGE2
 
 PDF_CHUNK_SIZE = STAGE2.PDF_CHUNK_SIZE
 PDF_CHUNK_OVERLAP = STAGE2.PDF_CHUNK_OVERLAP

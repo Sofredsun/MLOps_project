@@ -257,9 +257,10 @@ def get_page(url: str, session: requests.Session):
 def extract_pdf_text(pdf_bytes: bytes) -> str:
     """Извлекает текст из байтов PDF через pdfminer. Возвращает пустую строку при ошибке."""
     try:
+        import io
+
         from pdfminer.high_level import extract_text_to_fp
         from pdfminer.layout import LAParams
-        import io
 
         out = io.StringIO()
         extract_text_to_fp(
