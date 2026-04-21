@@ -5,7 +5,10 @@ setup(
     version="1.0.0",
     author="Anna Novikova, Sofia Mikhaleva",
     description="MLOps pipeline for School RAG System",
-    packages=find_packages(),
+    # Ищем пакеты внутри папки src/
+    packages=find_packages(where="src"),
+    # Указываем, что корень импортов начинается с src/
+    package_dir={"": "src"},
     python_requires=">=3.8",
     install_requires=[
         "streamlit>=1.28.0",
@@ -16,7 +19,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "run-pipeline=src.pipeline:main",
+            "run-pipeline=pipeline:main",
         ],
     },
 )
