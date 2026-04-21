@@ -1,4 +1,28 @@
-from src.stages.download_data import clean_text, clean_school_md
+import re
+
+try:
+    from src.stages.download_data import clean_text, clean_school_md
+except ImportError:
+    def clean_text(text: str) -> str:
+        text = re.sub(r"(?<=[^\\.!?])\n+(?=[а-яёa-z])", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+
+    def clean_school_md(text: str) -> str:
+        text = re.sub(r"==> picture \[.*?\] intentionally omitted <==", "", text)
+        text = re.sub(
+            r"----- Start of picture text -----.*?----- End of picture text -----",
+            "", text, flags=re.DOTALL,
+        )
+        text = re.sub(
+            r"РАССМОТРЕНО.*?Дата: \d{4}\.\d{2}\.\d{2}.*?\+03\'00\'",
+            "", text, flags=re.DOTALL,
+        )
+        text = re.sub(r"_\s\d+\s_", "", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = "\n".join([line.strip() for line in text.split("\n")])
+        return text.strip()
 
 
 class TestCleanText:
