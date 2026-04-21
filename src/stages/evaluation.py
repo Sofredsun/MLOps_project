@@ -1,31 +1,34 @@
-"""
-Stage 3: Evaluation and Model Testing
-Скрипт для создания эмбеддингов, инициализации ChromaDB,
-генерации ответов и оценки качества модели.
-"""
 import json
 import pickle
-import time
-import mlflow
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any
-from datetime import datetime
-from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from sklearn.metrics.pairwise import cosine_similarity
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaLLM
-from langchain_core.prompts import ChatPromptTemplate
-from tqdm import tqdm
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List
+
+import mlflow
+import numpy as np
+import pandas as pd
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaLLM
+from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+
+from utils.config import PATHS, STAGE3
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from utils.config import STAGE3, PATHS
+
+"""
+Stage 3: Evaluation and Model Testing
+Скрипт для создания эмбеддингов, инициализации ChromaDB,
+генерации ответов и оценки качества модели.
+"""
 
 TRAIN_DIR = PATHS.TRAIN_DIR
 VAL_DIR = PATHS.VAL_DIR
@@ -39,7 +42,10 @@ EVAL_DATASET_PATH = PATHS.EVAL_DATASET_PATH
 mlflow.set_tracking_uri("http://localhost:5000")
 mlflow.set_experiment("School_RAG_Evaluation")
 
-def compute_semantic_similarity(embeddings_model: HuggingFaceEmbeddings, text1: str, text2: str) -> float:
+
+def compute_semantic_similarity(
+    embeddings_model: HuggingFaceEmbeddings, text1: str, text2: str
+) -> float:
     emb1 = embeddings_model.embed_query(text1)
     emb2 = embeddings_model.embed_query(text2)
     return float(cosine_similarity([emb1], [emb2])[0][0])
@@ -54,12 +60,14 @@ def compute_faithfulness(answer: str, context: str) -> float:
     return len(overlap) / len(answer_words)
 
 
-def load_chunks(chunk_dir: Path, chunk_type: str = 'training') -> List[Document]:
-    pickle_path = chunk_dir / f'{chunk_type}_chunks.pkl'
+def load_chunks(chunk_dir: Path, chunk_type: str = "training") -> List[Document]:
+    pickle_path = chunk_dir / f"{chunk_type}_chunks.pkl"
     if not pickle_path.exists():
-        raise FileNotFoundError(f"Файл {pickle_path} не найден. Сначала запустите stage 2.")
+        raise FileNotFoundError(
+            f"Файл {pickle_path} не найден. Сначала запустите stage 2."
+        )
 
-    with open(pickle_path, 'rb') as f:
+    with open(pickle_path, "rb") as f:
         chunks = pickle.load(f)
     print(f"Загружено {len(chunks)} чанков из {chunk_type} набора")
     return chunks
@@ -68,8 +76,8 @@ def load_chunks(chunk_dir: Path, chunk_type: str = 'training') -> List[Document]
 def load_eval_dataset(csv_path: str) -> pd.DataFrame:
     if not Path(csv_path).exists():
         raise FileNotFoundError(f"Файл датасета {csv_path} не найден.")
-    df = pd.read_csv(csv_path, encoding='utf-8-sig', sep=';')
-    required_cols = {'question', 'ground_truth_answer'}
+    df = pd.read_csv(csv_path, encoding="utf-8-sig", sep=";")
+    required_cols = {"question", "ground_truth_answer"}
     if not required_cols.issubset(df.columns):
         raise ValueError(f"В CSV должны быть колонки: {required_cols}")
     print(f"Загружено {len(df)} вопросов для оценки")
@@ -78,20 +86,24 @@ def load_eval_dataset(csv_path: str) -> pd.DataFrame:
 
 def initialize_embeddings() -> HuggingFaceEmbeddings:
     print(f"\nИнициализирую модель эмбеддингов: {EMBEDDING_MODEL}")
-    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL, model_kwargs={'device': 'cpu'})
+    return HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL, model_kwargs={"device": "cpu"}
+    )
 
 
-def create_chroma_db(chunks: List[Document], embeddings: HuggingFaceEmbeddings) -> Chroma:
+def create_chroma_db(
+    chunks: List[Document], embeddings: HuggingFaceEmbeddings
+) -> Chroma:
     print(f"\nСоздание ChromaDB в {CHROMA_DIR}...")
     db = Chroma(
-        collection_name='school_knowledge_base',
+        collection_name="school_knowledge_base",
         persist_directory=str(CHROMA_DIR),
-        embedding_function=embeddings
+        embedding_function=embeddings,
     )
 
     batch_size = 20
     for i in tqdm(range(0, len(chunks), batch_size), desc="Загрузка чанков в ChromaDB"):
-        batch = chunks[i: i + batch_size]
+        batch = chunks[i : i + batch_size]
         try:
             db.add_documents(batch)
         except Exception as e:
@@ -100,12 +112,17 @@ def create_chroma_db(chunks: List[Document], embeddings: HuggingFaceEmbeddings) 
     return db
 
 
-def test_rag_system(db: Chroma, eval_df: pd.DataFrame, embeddings: HuggingFaceEmbeddings, models: List[str] = None) -> List[Dict[str, Any]]:
+def test_rag_system(
+    db: Chroma,
+    eval_df: pd.DataFrame,
+    embeddings: HuggingFaceEmbeddings,
+    models: List[str] = None,
+) -> List[Dict[str, Any]]:
     if models is None:
         models = AVAILABLE_LLM_MODELS
 
     results = []
-    template = """Вы — экспертный аналитик базы знаний школы. 
+    template = """Вы — экспертный аналитик базы знаний школы.
 Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
 
 КОНТЕКСТ:
@@ -119,7 +136,9 @@ def test_rag_system(db: Chroma, eval_df: pd.DataFrame, embeddings: HuggingFaceEm
 
     prompt = ChatPromptTemplate.from_template(template)
     # Исправлен пробел в ключе "k"
-    retriever = db.as_retriever(search_type='similarity', search_kwargs={"k": RETRIEVER_K})
+    retriever = db.as_retriever(
+        search_type="similarity", search_kwargs={"k": RETRIEVER_K}
+    )
 
     for model_name in models:
         print(f"\nИнициализирую модель: {model_name}")
@@ -138,21 +157,32 @@ def test_rag_system(db: Chroma, eval_df: pd.DataFrame, embeddings: HuggingFaceEm
 
             sim_list, faith_list, lat_list = [], [], []
 
-            for idx, row in tqdm(eval_df.iterrows(), total=len(eval_df), desc=f"Testing {model_name}"):
-                question = row['question']
-                ground_truth = row['ground_truth_answer']
+            for idx, row in tqdm(
+                eval_df.iterrows(), total=len(eval_df), desc=f"Testing {model_name}"
+            ):
+                question = row["question"]
+                ground_truth = row["ground_truth_answer"]
 
                 start_time = time.time()
                 try:
                     retrieved_docs = retriever.invoke(question)
 
-                    context_text = "\n\n".join([
-                        f"[Источник: {doc.metadata.get('source', 'Unknown')}]\n{doc.page_content}"
-                        for doc in retrieved_docs
-                    ])
+                    context_text = "\n\n".join(
+                        [
+                            f"[Источник: {doc.metadata.get('source', 'Unknown')}]"
+                            f"\n{doc.page_content}"
+                            for doc in retrieved_docs
+                        ]
+                    )
 
-                    response = chain.invoke({"context": context_text, "question": question})
-                    answer = response.content if hasattr(response, 'content') else str(response)
+                    response = chain.invoke(
+                        {"context": context_text, "question": question}
+                    )
+                    answer = (
+                        response.content
+                        if hasattr(response, "content")
+                        else str(response)
+                    )
                     answer = answer.strip()
 
                     latency = time.time() - start_time
@@ -170,38 +200,44 @@ def test_rag_system(db: Chroma, eval_df: pd.DataFrame, embeddings: HuggingFaceEm
                     mlflow.log_metric("latency_seconds", latency, step=idx)
                     mlflow.log_metric("context_length", len(context_text), step=idx)
 
-                    results.append({
-                        "model": model_name,
-                        "question": question,
-                        "ground_truth": ground_truth,
-                        "answer": answer,
-                        "semantic_similarity": round(sim, 3),
-                        "faithfulness": round(faith, 3),
-                        "latency_seconds": round(latency, 3),
-                        "context_length": len(context_text),
-                        "timestamp": datetime.now().isoformat(),
-                        "error": False
-                    })
+                    results.append(
+                        {
+                            "model": model_name,
+                            "question": question,
+                            "ground_truth": ground_truth,
+                            "answer": answer,
+                            "semantic_similarity": round(sim, 3),
+                            "faithfulness": round(faith, 3),
+                            "latency_seconds": round(latency, 3),
+                            "context_length": len(context_text),
+                            "timestamp": datetime.now().isoformat(),
+                            "error": False,
+                        }
+                    )
                 except Exception as e:
                     print(f"Ошибка при обработке вопроса: {e}")
                     mlflow.log_metric("error_flag", 1, step=idx)
-                    results.append({
-                        "model": model_name,
-                        "question": question,
-                        "ground_truth": ground_truth,
-                        "answer": f"ERROR: {str(e)}",
-                        "semantic_similarity": 0.0,
-                        "faithfulness": 0.0,
-                        "latency_seconds": -1.0,
-                        "context_length": 0,
-                        "timestamp": datetime.now().isoformat(),
-                        "error": True
-                    })
-            valid_lat = [l for l in lat_list if l > 0]
+                    results.append(
+                        {
+                            "model": model_name,
+                            "question": question,
+                            "ground_truth": ground_truth,
+                            "answer": f"ERROR: {str(e)}",
+                            "semantic_similarity": 0.0,
+                            "faithfulness": 0.0,
+                            "latency_seconds": -1.0,
+                            "context_length": 0,
+                            "timestamp": datetime.now().isoformat(),
+                            "error": True,
+                        }
+                    )
+            valid_lat = [lines for lines in lat_list if lines > 0]
             mlflow.log_metric("avg_semantic_similarity", float(np.mean(sim_list)))
             mlflow.log_metric("avg_faithfulness", float(np.mean(faith_list)))
             mlflow.log_metric("min_similarity", float(np.min(sim_list)))
-            mlflow.log_metric("avg_latency", float(np.mean(valid_lat)) if valid_lat else 0.0)
+            mlflow.log_metric(
+                "avg_latency", float(np.mean(valid_lat)) if valid_lat else 0.0
+            )
 
         print(f"{model_name}: тестирование завершено")
 
@@ -212,22 +248,35 @@ def calculate_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     metrics = {}
     by_model = {}
     for r in results:
-        by_model.setdefault(r['model'], []).append(r)
+        by_model.setdefault(r["model"], []).append(r)
 
     for model, model_results in by_model.items():
-        errors = sum(1 for r in model_results if r.get('error'))
+        errors = sum(1 for r in model_results if r.get("error"))
         total = len(model_results)
-        valid = [r for r in model_results if not r['error']]
+        valid = [r for r in model_results if not r["error"]]
 
         metrics[model] = {
             "total_tests": total,
             "successful": total - errors,
             "errors": errors,
             "error_rate": round(errors / total, 3) if total > 0 else 0,
-            "avg_semantic_similarity": round(np.mean([r['semantic_similarity'] for r in valid]), 3) if valid else 0,
-            "avg_faithfulness": round(np.mean([r['faithfulness'] for r in valid]), 3) if valid else 0,
-            "avg_latency": round(np.mean([r['latency_seconds'] for r in valid if r['latency_seconds'] > 0]), 3),
-            "min_similarity": round(min([r['semantic_similarity'] for r in valid]), 3) if valid else 0
+            "avg_semantic_similarity": (
+                round(np.mean([r["semantic_similarity"] for r in valid]), 3)
+                if valid
+                else 0
+            ),
+            "avg_faithfulness": (
+                round(np.mean([r["faithfulness"] for r in valid]), 3) if valid else 0
+            ),
+            "avg_latency": round(
+                np.mean(
+                    [r["latency_seconds"] for r in valid if r["latency_seconds"] > 0]
+                ),
+                3,
+            ),
+            "min_similarity": (
+                round(min([r["semantic_similarity"] for r in valid]), 3) if valid else 0
+            ),
         }
     return metrics
 
@@ -235,12 +284,12 @@ def calculate_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 def save_results(results: List[Dict[str, Any]], metrics: Dict[str, Any]) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    results_csv = OUTPUT_DIR / 'evaluation_results.csv'
-    pd.DataFrame(results).to_csv(results_csv, index=False, encoding='utf-8')
+    results_csv = OUTPUT_DIR / "evaluation_results.csv"
+    pd.DataFrame(results).to_csv(results_csv, index=False, encoding="utf-8")
     print(f"Результаты сохранены в {results_csv}")
 
-    metrics_json = OUTPUT_DIR / 'metrics.json'
-    with open(metrics_json, 'w', encoding='utf-8') as f:
+    metrics_json = OUTPUT_DIR / "metrics.json"
+    with open(metrics_json, "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
     print(f"Метрики сохранены в {metrics_json}")
 
@@ -249,8 +298,14 @@ def save_results(results: List[Dict[str, Any]], metrics: Dict[str, Any]) -> None
     print("=" * 60)
     for model, m in metrics.items():
         print(f"\n🔹 {model}")
-        print(f"   Успешно: {m['successful']}/{m['total_tests']} (ошибок: {m['error_rate'] * 100:.1f}%)")
-        print(f"   Avg Similarity: {m['avg_semantic_similarity']:.3f} | Min: {m['min_similarity']:.3f}")
+        print(
+            f"   Успешно: {m['successful']}/{m['total_tests']} "
+            f"(ошибок: {m['error_rate'] * 100:.1f}%)"
+        )
+        print(
+            f"   Avg Similarity: {m['avg_semantic_similarity']:.3f} | "
+            f"Min: {m['min_similarity']:.3f}"
+        )
         print(f"   Avg Faithfulness: {m['avg_faithfulness']:.3f}")
         print(f"   Avg Latency: {m['avg_latency']:.3f}s")
 
@@ -261,7 +316,7 @@ def main():
     print("=" * 60)
 
     print("\nЗагружаю данные...")
-    train_chunks = load_chunks(TRAIN_DIR, 'training')
+    train_chunks = load_chunks(TRAIN_DIR, "training")
     eval_df = load_eval_dataset(EVAL_DATASET_PATH)
 
     embeddings = initialize_embeddings()

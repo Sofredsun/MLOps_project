@@ -3,10 +3,10 @@ MLOps Pipeline Orchestrator
 Запускает все stages последовательно
 """
 
-import sys
-import subprocess
-from pathlib import Path
 import logging
+import subprocess
+import sys
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -14,8 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 

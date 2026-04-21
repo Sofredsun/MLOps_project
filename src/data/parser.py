@@ -6,16 +6,17 @@ PDF-файлы скачиваются в school_knowledge_base/docs/
 Сканы (без текстового слоя) пропускаются
 """
 
+import hashlib
+import os
+import re
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urljoin, urlparse, urlunparse
+
 import requests
 from bs4 import BeautifulSoup, Tag
-import re
-import os
-import time
-import hashlib
-from urllib.parse import urljoin, urlparse, urlunparse
-from datetime import datetime
-from collections import deque
-from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 BASE_URL = "http://saki-school2.ucoz.ru"
@@ -39,50 +40,134 @@ HEADERS = {
 }
 
 TARGET_PAGES = [
-    ("http://saki-school2.ucoz.ru/index/osnovnye_svedenija/0-58", "основные_сведения", False),
-    ("http://saki-school2.ucoz.ru/index/struktura_i_organy_upravlenija_obrazovatelnoj_organizaciej/0-59",
-     "структура_и_органы_управления", False),
-    ("http://saki-school2.ucoz.ru/index/rukovodstvo_pedagogicheskij_sostav/0-14", "руководство_педсостав", False),
-    ("http://saki-school2.ucoz.ru/index/pedagogicheskij_sostav/0-203", "педагогический_состав", False),
     (
-        "http://saki-school2.ucoz.ru/index/materialno_tekhnicheskoe_obespechenie_i_osnashhennost_obrazovatelnogo_processa/0-56",
-        "материально_техническое", False),
-    ("http://saki-school2.ucoz.ru/index/organizacija_pitanija_v_obrazovatelnoj_organizacii/0-173", "питание", True),
+        "http://saki-school2.ucoz.ru/index/osnovnye_svedenija/0-58",
+        "основные_сведения",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/"
+        "struktura_i_organy_upravlenija_obrazovatelnoj_organizaciej/0-59",
+        "структура_и_органы_управления",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/rukovodstvo_pedagogicheskij_sostav/0-14",
+        "руководство_педсостав",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/pedagogicheskij_sostav/0-203",
+        "педагогический_состав",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/"
+        "materialno_tekhnicheskoe_obespechenie_i_osnashhennost_obrazovatelnogo_processa"
+        "/0-56",
+        "материально_техническое",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/"
+        "organizacija_pitanija_v_obrazovatelnoj_organizacii/0-173",
+        "питание",
+        True,
+    ),
     ("http://saki-school2.ucoz.ru/index/dokumentacija/0-42", "документация", True),
-    ("http://saki-school2.ucoz.ru/index/raspisanie_urokov/0-50", "расписание_уроков", True),
-    ("http://saki-school2.ucoz.ru/index/rezhim_raboty_shkoly/0-51", "режим_работы", False),
-    ("http://saki-school2.ucoz.ru/index/vserossijskie_proverochnye_raboty/0-76", "всероссийские_проверочные", False),
-    ("http://saki-school2.ucoz.ru/index/vneurochnaja_dejatelnost/0-55", "внеурочная_деятельность", True),
+    (
+        "http://saki-school2.ucoz.ru/index/raspisanie_urokov/0-50",
+        "расписание_уроков",
+        True,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/rezhim_raboty_shkoly/0-51",
+        "режим_работы",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/vserossijskie_proverochnye_raboty/0-76",
+        "всероссийские_проверочные",
+        False,
+    ),
+    (
+        "http://saki-school2.ucoz.ru/index/vneurochnaja_dejatelnost/0-55",
+        "внеурочная_деятельность",
+        True,
+    ),
     ("http://saki-school2.ucoz.ru/publ/", "публикации", True),
 ]
 
 SKIP_EXTENSIONS = (
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico',
-    '.zip', '.rar', '.7z', '.mp3', '.mp4', '.avi',
-    '.css', '.js', '.woff', '.woff2', '.ttf', '.xml',
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".svg",
+    ".ico",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".mp3",
+    ".mp4",
+    ".avi",
+    ".css",
+    ".js",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".xml",
 )
 
 # Словарь транслитерации
 _TRANSLIT: dict[str, str] = {
-    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
-    'ё': 'yo', 'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'j', 'к': 'k',
-    'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r',
-    'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts',
-    'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
-    'э': 'e', 'ю': 'yu', 'я': 'ya',
+    "а": "a",
+    "б": "b",
+    "в": "v",
+    "г": "g",
+    "д": "d",
+    "е": "e",
+    "ё": "yo",
+    "ж": "zh",
+    "з": "z",
+    "и": "i",
+    "й": "j",
+    "к": "k",
+    "л": "l",
+    "м": "m",
+    "н": "n",
+    "о": "o",
+    "п": "p",
+    "р": "r",
+    "с": "s",
+    "т": "t",
+    "у": "u",
+    "ф": "f",
+    "х": "h",
+    "ц": "ts",
+    "ч": "ch",
+    "ш": "sh",
+    "щ": "sch",
+    "ъ": "",
+    "ы": "y",
+    "ь": "",
+    "э": "e",
+    "ю": "yu",
+    "я": "ya",
 }
 
 # Паттерн «мусорных» слов
 _PDF_NOISE = re.compile(
-    r'\s*(скачать\.{0,3}|посмотреть\.{0,3}|открыть карточку сотрудника\.{0,3}'
-    r'|открыть\.{0,3}|просмотр\.{0,3}|view\.{0,3}|download\.{0,3})\s*',
-    re.IGNORECASE
+    r"\s*(скачать\.{0,3}|посмотреть\.{0,3}|открыть карточку сотрудника\.{0,3}"
+    r"|открыть\.{0,3}|просмотр\.{0,3}|view\.{0,3}|download\.{0,3})\s*",
+    re.IGNORECASE,
 )
 
 # Паттерн для удаления "(открыть карточку сотрудника)"
 _STAFF_CARD_NOISE = re.compile(
-    r'\(\s*открыть карточку сотрудника\s*\)|\(\s*\)',
-    re.IGNORECASE
+    r"\(\s*открыть карточку сотрудника\s*\)|\(\s*\)", re.IGNORECASE
 )
 
 # Метки страниц, для которых .md не создается — только скачиваются PDF
@@ -97,7 +182,9 @@ _STAFF_LABEL = "педагогический_состав"
 
 def normalize_url(url: str) -> str:
     parsed = urlparse(url)
-    result = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
+    result = urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, "")
+    )
     return result.rstrip("/") or "/"
 
 
@@ -112,13 +199,13 @@ def skip_url(url: str) -> bool:
 
 
 def clean(text: str) -> str:
-    return re.sub(r'\s+', ' ', text or "").strip()
+    return re.sub(r"\s+", " ", text or "").strip()
 
 
 def slugify(text: str) -> str:
-    slug = ''.join(_TRANSLIT.get(c, c) for c in text.lower())
-    slug = re.sub(r'[^a-z0-9]+', '-', slug)
-    return slug.strip('-')[:60] or "page"
+    slug = "".join(_TRANSLIT.get(c, c) for c in text.lower())
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")[:60] or "page"
 
 
 def unique_filename(base: str, used: set) -> str:
@@ -142,11 +229,12 @@ def url_to_filename(url: str) -> str:
 
 def _clean_pdf_noise(text: str) -> str:
     """Убирает «Скачать...», «Посмотреть...» и подобное из строки текста."""
-    cleaned = _PDF_NOISE.sub(' ', text).strip()
-    return re.sub(r'\s{2,}', ' ', cleaned).strip()
+    cleaned = _PDF_NOISE.sub(" ", text).strip()
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
 # HTTP
+
 
 def get_page(url: str, session: requests.Session):
     try:
@@ -169,16 +257,30 @@ def get_page(url: str, session: requests.Session):
 
 # PDF скачивание и проверка
 
+
 def extract_pdf_text(pdf_bytes: bytes) -> str:
-    """Извлекает текст из байтов PDF через pdfminer. Возвращает пустую строку при ошибке."""
+    """
+    Извлекает текст из байтов PDF через pdfminer.
+    Возвращает пустую строку при ошибке.
+    """
     try:
+        import io
+
         from pdfminer.high_level import extract_text_to_fp
         from pdfminer.layout import LAParams
-        import io
+
         out = io.StringIO()
-        extract_text_to_fp(io.BytesIO(pdf_bytes), out, laparams=LAParams(), output_type='text', codec='utf-8')
+        extract_text_to_fp(
+            io.BytesIO(pdf_bytes),
+            out,
+            laparams=LAParams(),
+            output_type="text",
+            codec="utf-8",
+        )
         return out.getvalue()
-    except Exception:  # noqa: BLE001 — pdfminer бросает самые разные внутренние исключения
+    except (
+        Exception
+    ):  # noqa: BLE001 — pdfminer бросает самые разные внутренние исключения
         return ""
 
 
@@ -249,6 +351,7 @@ def download_pdf(url: str, session: requests.Session, downloaded: dict) -> str |
 
 # Парсинг
 
+
 def parse_table_md(table_tag, cell_clean=None) -> str:
     def _cell(td):
         txt = clean(td.get_text())
@@ -259,9 +362,28 @@ def parse_table_md(table_tag, cell_clean=None) -> str:
     if thead:
         headers = [_cell(c) for c in thead.find_all(["th", "td"])]
 
-    header_kw = {"фио", "имя", "предмет", "класс", "пн", "вт", "ср", "чт", "пт",
-                 "урок", "время", "учитель", "должность", "№", "кабинет",
-                 "понедельник", "вторник", "среда", "четверг", "пятница"}
+    header_kw = {
+        "фио",
+        "имя",
+        "предмет",
+        "класс",
+        "пн",
+        "вт",
+        "ср",
+        "чт",
+        "пт",
+        "урок",
+        "время",
+        "учитель",
+        "должность",
+        "№",
+        "кабинет",
+        "понедельник",
+        "вторник",
+        "среда",
+        "четверг",
+        "пятница",
+    }
     first = True
     tbody = table_tag.find("tbody") or table_tag
     for tr in tbody.find_all("tr"):
@@ -305,7 +427,9 @@ def collect_pdf_links(content_el, base_url: str) -> list[dict]:
         link_lower = link_text.lower()
 
         is_pdf_url = href.lower().endswith(".pdf")
-        is_view = any(w in link_lower for w in ("посмотреть", "открыть", "просмотр", "view"))
+        is_view = any(
+            w in link_lower for w in ("посмотреть", "открыть", "просмотр", "view")
+        )
         is_download = any(w in link_lower for w in ("скачать", "download", "загрузить"))
 
         if is_download and not is_view:
@@ -317,9 +441,13 @@ def collect_pdf_links(content_el, base_url: str) -> list[dict]:
     return pdfs
 
 
-def content_to_markdown(content_el, page_url: str,
-                        session: requests.Session, downloaded: dict,
-                        label: str = "") -> str:
+def content_to_markdown(
+    content_el,
+    page_url: str,
+    session: requests.Session,
+    downloaded: dict,
+    label: str = "",
+) -> str:
     """
     Конвертирует div.content в Markdown.
     """
@@ -327,7 +455,7 @@ def content_to_markdown(content_el, page_url: str,
     seen_texts: set = set()
 
     # Флаг: находимся внутри пропускаемого блока (для ВПР)
-    is_vpr = (label == "всероссийские_проверочные")
+    is_vpr = label == "всероссийские_проверочные"
     skip_block = False  # True — текущий блок пропускается
 
     def add(line: str):
@@ -358,7 +486,11 @@ def content_to_markdown(content_el, page_url: str,
         if el.name == "table":
             if skip_block:
                 return
-            cell_clean = (lambda t: _STAFF_CARD_NOISE.sub('', t).strip()) if label == _STAFF_LABEL else None
+            cell_clean = (
+                (lambda t: _STAFF_CARD_NOISE.sub("", t).strip())
+                if label == _STAFF_LABEL
+                else None
+            )
             tbl = parse_table_md(el, cell_clean=cell_clean)
             if tbl:
                 add("")
@@ -401,7 +533,7 @@ def content_to_markdown(content_el, page_url: str,
                 txt = _clean_pdf_noise(raw_txt)
                 # Педсостав: убираем "(открыть карточку сотрудника)"
                 if label == _STAFF_LABEL:
-                    txt = _STAFF_CARD_NOISE.sub('', txt).strip()
+                    txt = _STAFF_CARD_NOISE.sub("", txt).strip()
                 if txt:
                     add(txt)
                     add("")
@@ -409,7 +541,7 @@ def content_to_markdown(content_el, page_url: str,
             else:
                 txt = raw_txt
                 if label == _STAFF_LABEL:
-                    txt = _STAFF_CARD_NOISE.sub('', txt).strip()
+                    txt = _STAFF_CARD_NOISE.sub("", txt).strip()
                 if txt:
                     add(txt)
                     add("")
@@ -425,7 +557,7 @@ def content_to_markdown(content_el, page_url: str,
                 links_in_li = collect_pdf_links(li, page_url)
                 txt = _clean_pdf_noise(clean(li.get_text()))
                 if label == _STAFF_LABEL:
-                    txt = _STAFF_CARD_NOISE.sub('', txt).strip()
+                    txt = _STAFF_CARD_NOISE.sub("", txt).strip()
                 if txt:
                     add(f"- {txt}")
                 if links_in_li:
@@ -443,7 +575,7 @@ def content_to_markdown(content_el, page_url: str,
                 links_in_li = collect_pdf_links(li, page_url)
                 txt = _clean_pdf_noise(clean(li.get_text()))
                 if label == _STAFF_LABEL:
-                    txt = _STAFF_CARD_NOISE.sub('', txt).strip()
+                    txt = _STAFF_CARD_NOISE.sub("", txt).strip()
                 if txt:
                     add(f"{i}. {txt}")
                 if links_in_li:
@@ -456,12 +588,23 @@ def content_to_markdown(content_el, page_url: str,
             txt = clean(el.get_text()) or "документ"
             full = urljoin(page_url, href)
             is_pdf = href.lower().endswith(".pdf")
-            is_view = any(w in txt.lower() for w in ("посмотреть", "открыть", "просмотр", "скачать"))
+            is_view = any(
+                w in txt.lower()
+                for w in ("посмотреть", "открыть", "просмотр", "скачать")
+            )
             if (is_pdf or is_view) and full not in handled_pdf_urls:
                 handled_pdf_urls.add(full)
                 download_pdf(full, session, downloaded)
             return
-        if isinstance(el, Tag) and el.name in ("div", "section", "article", "main", "span", "td", "th"):
+        if isinstance(el, Tag) and el.name in (
+            "div",
+            "section",
+            "article",
+            "main",
+            "span",
+            "td",
+            "th",
+        ):
             for child in el.children:
                 if isinstance(child, Tag):
                     process_node(child, depth + 1)
@@ -478,8 +621,9 @@ def content_to_markdown(content_el, page_url: str,
     return "\n".join(result).strip()
 
 
-def page_to_markdown(soup, url: str, label: str,
-                     session: requests.Session, downloaded: dict) -> dict:
+def page_to_markdown(
+    soup, url: str, label: str, session: requests.Session, downloaded: dict
+) -> dict:
     """Парсит страницу, извлекает только div.content."""
     content_el = soup.select_one("div.content")
     if not content_el:
@@ -506,14 +650,13 @@ def get_inner_links(soup, base_url: str, prefix: str) -> list[str]:
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         full = normalize_url(urljoin(base_url, href))
-        if (is_internal(full)
-                and not skip_url(full)
-                and full.startswith(prefix)):
+        if is_internal(full) and not skip_url(full) and full.startswith(prefix):
             links.append(full)
     return links
 
 
 # Краулер
+
 
 def crawl(session: requests.Session) -> list[dict]:
     pages: list = []
@@ -567,7 +710,9 @@ def crawl(session: requests.Session) -> list[dict]:
                 time.sleep(DELAY)
 
             if section_count >= 15:
-                print(f"    [лимит 15 стр. на раздел достигнут, пропущено ~{len(queue)} URL]")
+                print(
+                    f"[лимит 15 стр. на раздел достигнут, пропущено ~{len(queue)} URL]"
+                )
 
         else:
             if url in visited:
@@ -636,13 +781,13 @@ def main():
     session = requests.Session()
     session.max_redirects = 10
 
-    pages = crawl(session)
+    # _pages = crawl(session)
 
-    md_count = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".md")])
-    pdf_count = len([f for f in os.listdir(DOCS_DIR) if f.endswith(".pdf")])
+    # _md_count = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".md")])
+    # _pdf_count = len([f for f in os.listdir(DOCS_DIR) if f.endswith(".pdf")])
 
     print("\n" + "=" * 65)
-    print(f"Готово!")
+    print("Готово!")
 
 
 if __name__ == "__main__":
