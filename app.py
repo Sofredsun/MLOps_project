@@ -1,6 +1,7 @@
 import time
 
 import mlflow
+import requests
 import streamlit as st
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,10 +13,9 @@ mlflow.set_experiment("School_RAG_System")
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
-DATA_DIR = "data/school_knowledge_base"
 CHROMA_DIR = "chroma_langchain_db"
-
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
+API_URL = "http://localhost:8000"
 
 
 @st.cache_resource
@@ -25,7 +25,8 @@ def load_knowledge_base():
     Кешируется при первом запуске.
     """
     embeddings = HuggingFaceEmbeddings(
-        model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
+        model_name="intfloat/multilingual-e5-small",
+        model_kwargs={"device": "cpu"}
     )
     vector_store = Chroma(
         collection_name="school_knowledge_base",
@@ -55,7 +56,43 @@ TEMPLATE = """Вы — экспертный аналитик базы знани
 ОТВЕТ:"""
 
 
+@st.cache_data(ttl=30)
+def fetch_alerts():
+    """Загружает алерты с бэкенда каждые 30 секунд"""
+    try:
+        response = requests.get(f"{API_URL}/monitoring/alerts", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return []
+
+
 def main():
+    # Блок отображения уведомлений о дрейфе
+    alerts = fetch_alerts()
+    if alerts:
+        latest_alert = alerts[0]
+        if latest_alert.get("drift_detected"):
+            score = latest_alert.get("drift_score", "N/A")
+            threshold = latest_alert.get("threshold", "N/A")
+            recommendation = latest_alert.get("recommendation", "Проверьте данные")
+            timestamp = latest_alert.get("timestamp", "N/A")
+
+            st.error(f"**Обнаружен дрейф запросов!**")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Drift Score", f"{score}")
+                st.metric("Threshold", f"{threshold}")
+            with col2:
+                st.metric("Time", timestamp[:16] if timestamp != "N/A" else "N/A")
+                st.info(f"{recommendation}")
+
+            if st.button("Обновить статус дрейфа"):
+                requests.get(f"{API_URL}/monitoring/drift", timeout=10)
+                st.cache_data.clear()
+                st.rerun()
+            st.divider()
+
     st.title("Школьный ИИ-ассистент")
     st.markdown(
         "RAG-система для быстрого поиска информации по базе знаний школы: "
