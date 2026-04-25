@@ -31,7 +31,7 @@ def main():
             recommendation = latest_alert.get("recommendation", "Проверьте данные")
             timestamp = latest_alert.get("timestamp", "N/A")
 
-            st.error(f"**Обнаружен дрейф запросов!**")
+            st.error("**Обнаружен дрейф запросов!**")
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Drift Score", f"{score}")
