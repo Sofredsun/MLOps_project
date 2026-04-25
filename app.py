@@ -1,59 +1,13 @@
 import time
 
-import mlflow
 import requests
 import streamlit as st
-from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama.llms import OllamaLLM
-
-mlflow.set_tracking_uri("http://localhost:5000")
-mlflow.set_experiment("School_RAG_System")
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
 CHROMA_DIR = "chroma_langchain_db"
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
 API_URL = "http://localhost:8000"
-
-
-@st.cache_resource
-def load_knowledge_base():
-    """
-    Загружает векторную базу знаний.
-    Кешируется при первом запуске.
-    """
-    embeddings = HuggingFaceEmbeddings(
-        model_name="intfloat/multilingual-e5-small",
-        model_kwargs={"device": "cpu"}
-    )
-    vector_store = Chroma(
-        collection_name="school_knowledge_base",
-        persist_directory=CHROMA_DIR,
-        embedding_function=embeddings,
-    )
-    return vector_store
-
-
-# Шаблон промпта для языковой модели
-TEMPLATE = """Вы — экспертный аналитик базы знаний школы.
-Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
-
-КОНТЕКСТ:
-{context}
-
-ВОПРОС: {question}
-
-ИНСТРУКЦИЯ:
-1. Проанализируй контекст. Если информация представлена в виде списка,
-таблицы или расписания — изучи каждую строку.
-2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"),
-используй их для ответа.
-3. Если ответ найден частично, напиши то, что удалось найти.
-4. Сначала кратко опиши, что ты нашел в документах, а затем дай итоговый ответ.
-
-ОТВЕТ:"""
 
 
 @st.cache_data(ttl=30)
@@ -164,91 +118,51 @@ def main():
 
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            full_response = ""
 
             with st.spinner("Ищу информацию в базе знаний..."):
-                with mlflow.start_run(run_name=f"Query_{time.strftime('%H%M%S')}"):
-                    try:
-                        start_time = time.time()
+                try:
+                    response = requests.post(
+                        f"{API_URL}/ask",
+                        json={
+                            "question": question,
+                            "model": selected_model,
+                            "k_retrieval": k_retrieval,
+                        },
+                        timeout=120,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
 
-                        mlflow.log_param("model", selected_model)
-                        mlflow.log_param("k_retrieval", k_retrieval)
-                        mlflow.log_param("question", question)
-                        mlflow.log_param("embedding_model", "multilingual-e5-small")
+                    full_response = data["answer"]
+                    sources_data = data["sources"]
+                    latency = data["latency"]
 
-                        # Загружаем базу знаний и инициализируем модель
-                        vector_store = load_knowledge_base()
-                        model = OllamaLLM(model=selected_model, temperature=0.1)
+                    # Эффект печатания
+                    displayed = ""
+                    for chunk in full_response.split():
+                        displayed += chunk + " "
+                        time.sleep(0.02)
+                        message_placeholder.markdown(displayed + "▌")
+                    message_placeholder.markdown(displayed)
 
-                        # Настраиваем retriever для поиска похожих документов
-                        retriever = vector_store.as_retriever(
-                            search_type="similarity", search_kwargs={"k": k_retrieval}
-                        )
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": displayed,
+                        "sources": sources_data,
+                    })
 
-                        prompt = ChatPromptTemplate.from_template(TEMPLATE)
-                        chain = prompt | model
+                    with st.expander("Найденные фрагменты документов"):
+                        for idx, source in enumerate(sources_data):
+                            st.markdown(f"**Фрагмент {idx + 1}:** `{source['source']}`")
+                            st.caption(source["content"][:400] + "...")
+                            if idx < len(sources_data) - 1:
+                                st.divider()
 
-                        # Извлекаем релевантные документы и формируем контекст
-                        docs = retriever.invoke(question)
-                        context_text = "\n\n".join(
-                            [
-                                f"[Источник {d.metadata.get('source', 'Неизвестно')}]\n"
-                                f"{d.page_content}"
-                                for d in docs
-                            ]
-                        )
+                    st.caption(f"Задержка: {latency:.2f}с | Модель: {selected_model}")
 
-                        # Ответ от модели
-                        response = chain.invoke(
-                            {"context": context_text, "question": question}
-                        )
-
-                        latency = time.time() - start_time
-                        mlflow.log_metric("latency", latency)
-                        mlflow.log_metric("context_length", len(context_text))
-
-                        mlflow.log_text(response, "assistant_response.txt")
-
-                        # Вывод ответа с эффектом печатания
-                        for chunk in response.split():
-                            full_response += chunk + " "
-                            time.sleep(0.02)
-                            message_placeholder.markdown(full_response + "▌")
-                        message_placeholder.markdown(full_response)
-
-                        sources_data = [
-                            {
-                                "source": doc.metadata.get("source", "Неизвестно"),
-                                "content": doc.page_content,
-                            }
-                            for doc in docs
-                        ]
-
-                        # Сохраняем ответ ассистента в историю
-                        st.session_state.messages.append(
-                            {
-                                "role": "assistant",
-                                "content": full_response,
-                                "sources": sources_data,
-                            }
-                        )
-
-                        with st.expander("Найденные фрагменты документов"):
-                            for idx, doc in enumerate(docs):
-                                st.markdown(
-                                    f"**Фрагмент {idx + 1}:** "
-                                    f"`{doc.metadata.get('source', 'Неизвестно')}`"
-                                )
-                                st.caption(doc.page_content[:400] + "...")
-                                if idx < len(docs) - 1:
-                                    st.divider()
-
-                    except Exception as e:
-                        st.error(f"Ошибка: {e}")
-                        st.info(
-                            "Убедитесь, что Ollama запущена и ChromaDB находится "
-                            "по пути chroma_langchain_db"
-                        )
+                except requests.RequestException as e:
+                    st.error(f"Ошибка подключения к API: {e}")
+                    st.info("Убедитесь, что FastAPI запущен: uvicorn api:app --reload")
 
 
 if __name__ == "__main__":
