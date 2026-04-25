@@ -5,7 +5,6 @@ import streamlit as st
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
-CHROMA_DIR = "chroma_langchain_db"
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
 API_URL = "http://localhost:8000"
 
