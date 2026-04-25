@@ -144,11 +144,13 @@ def main():
                         message_placeholder.markdown(displayed + "▌")
                     message_placeholder.markdown(displayed)
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": displayed,
-                        "sources": sources_data,
-                    })
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": displayed,
+                            "sources": sources_data,
+                        }
+                    )
 
                     with st.expander("Найденные фрагменты документов"):
                         for idx, source in enumerate(sources_data):
