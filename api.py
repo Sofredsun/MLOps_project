@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Optional
-import time
 import csv
 import os
+import time
 import uuid
+from typing import Optional
+
 import mlflow
-from langchain_ollama.llms import OllamaLLM
-from langchain_huggingface import HuggingFaceEmbeddings
+from fastapi import FastAPI, HTTPException
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama.llms import OllamaLLM
+from pydantic import BaseModel
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
@@ -26,8 +27,10 @@ TEMPLATE = """Вы — экспертный аналитик базы знани
 ВОПРОС: {question}
 
 ИНСТРУКЦИЯ:
-1. Проанализируй контекст. Если информация представлена в виде списка, таблицы или расписания — изучи каждую строку.
-2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"), используй их для ответа.
+1. Проанализируй контекст. Если информация представлена в виде списка,
+таблицы или расписания — изучи каждую строку.
+2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"),
+используй их для ответа.
 3. Если ответ найден частично, напиши то, что удалось найти.
 4. Сначала кратко опиши, что ты нашел в документах, а затем дай итоговый ответ.
 
@@ -44,6 +47,7 @@ app = FastAPI(
 
 _vector_store = None
 
+
 def get_vector_store():
     global _vector_store
     if _vector_store is None:
@@ -58,6 +62,7 @@ def get_vector_store():
         )
     return _vector_store
 
+
 # СХЕМЫ
 
 class AskRequest(BaseModel):
@@ -65,9 +70,11 @@ class AskRequest(BaseModel):
     model: Optional[str] = DEFAULT_MODEL
     k_retrieval: Optional[int] = DEFAULT_K
 
+
 class SourceItem(BaseModel):
     source: str
     content: str
+
 
 class AskResponse(BaseModel):
     request_id: str
@@ -76,6 +83,7 @@ class AskResponse(BaseModel):
     latency: float
     model: str
 
+
 class FeedbackRequest(BaseModel):
     request_id: str
     question: str
@@ -83,14 +91,17 @@ class FeedbackRequest(BaseModel):
     rating: int  # 1 - лайк, 0 - дизлайк
     comment: Optional[str] = None
 
+
 class FeedbackResponse(BaseModel):
     status: str
     message: str
+
 
 # ЭНДПОИНТЫ
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "School RAG API"}
+
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
@@ -124,11 +135,13 @@ def ask(request: AskRequest):
 
             docs = retriever.invoke(request.question)
             context_text = "\n\n".join([
-                f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
+                f"[Источник: {d.metadata.get('source', 'Неизвестно')}]"
+                f"\n{d.page_content}"
                 for d in docs
             ])
 
-            answer = chain.invoke({"context": context_text, "question": request.question})
+            answer = chain.invoke(
+                {"context": context_text, "question": request.question})
             latency = time.time() - start_time
 
             mlflow.log_metric("latency", latency)
@@ -158,7 +171,8 @@ def ask(request: AskRequest):
 @app.post("/feedback", response_model=FeedbackResponse)
 def feedback(request: FeedbackRequest):
     if request.rating not in (0, 1):
-        raise HTTPException(status_code=400, detail="rating должен быть 0 (дизлайк) или 1 (лайк)")
+        raise HTTPException(status_code=400,
+                            detail="rating должен быть 0 (дизлайк) или 1 (лайк)")
 
     os.makedirs(os.path.dirname(FEEDBACK_CSV), exist_ok=True)
     file_exists = os.path.exists(FEEDBACK_CSV)
@@ -178,7 +192,7 @@ def feedback(request: FeedbackRequest):
             "comment": request.comment or ""
         })
 
-    # логируем в MLflow тоже
+    # Логируем в MLflow тоже
     with mlflow.start_run(run_name=f"Feedback_{request.request_id[:8]}"):
         mlflow.log_param("request_id", request.request_id)
         mlflow.log_param("question", request.question)
