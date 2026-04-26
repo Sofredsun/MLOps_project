@@ -1,9 +1,7 @@
 import csv
-import json
 import os
 import time
 import uuid
-from pathlib import Path
 from typing import Optional
 
 import mlflow
@@ -13,8 +11,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama.llms import OllamaLLM
 from pydantic import BaseModel
-
-from src.monitoring.drift_detector import MinimalDriftDetector
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
@@ -50,30 +46,6 @@ app = FastAPI(
 )
 
 _vector_store = None
-
-drift_detector = MinimalDriftDetector()
-
-ALERTS_FILE = Path("data/monitoring/alerts.json")
-ALERTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _save_alert_to_file(result: dict) -> None:
-    """Сохраняет алерт в JSON для отображения в Streamlit"""
-    alerts = []
-    if ALERTS_FILE.exists():
-        try:
-            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
-                alerts = json.load(f)
-        except json.JSONDecodeError:
-            alerts = []
-
-    # Добавляем новый алерт в начало
-    alerts.insert(0, result)
-    # Храним только последние 50
-    alerts = alerts[:50]
-
-    with open(ALERTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(alerts, f, indent=2, ensure_ascii=False)
 
 
 def get_vector_store():
@@ -131,34 +103,6 @@ def health():
     return {"status": "ok", "service": "School RAG API"}
 
 
-@app.get("/monitoring/drift")
-def check_drift(hours: int = 24):
-    """
-    Проверка дрейфа запросов
-    ?hours=24 - анализировать последние 24 часа
-    """
-    result = drift_detector.detect_drift(hours=hours)
-
-    # Если дрейф обнаружен, то логируем
-    if result.get("drift_detected"):
-        print(f"DRIFT DETECTED: {result['drift_score']} > {result['threshold']}")
-        _save_alert_to_file(result)
-
-    return result
-
-
-@app.get("/monitoring/alerts")
-def get_alerts():
-    """Для Streamlit: возвращает последние алерты"""
-    if ALERTS_FILE.exists():
-        try:
-            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return []
-    return []
-
-
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
     if request.model not in AVAILABLE_MODELS:
@@ -211,20 +155,6 @@ def ask(request: AskRequest):
                 )
                 for doc in docs
             ]
-            # Логирование запроса для мониторинга дрейфа
-            try:
-                drift_detector.log_query(
-                    query=request.question,
-                    request_id=request_id,
-                    metadata={
-                        "model": request.model,
-                        "k": request.k_retrieval,
-                        "latency": round(latency, 3),
-                        "context_sources": len(docs)
-                    }
-                )
-            except Exception as drift_error:
-                print(f"Drift logging failed: {drift_error}")
 
             return AskResponse(
                 request_id=request_id,
@@ -235,16 +165,6 @@ def ask(request: AskRequest):
             )
 
         except Exception as e:
-            # Логируем даже при ошибке основного запроса
-            try:
-                drift_detector.log_query(
-                    query=request.question,
-                    request_id=request_id,
-                    metadata={"model": request.model, "error": str(e)[:100]}
-                )
-            except (OSError, RuntimeError, ValueError, TypeError):
-                pass  # Безопасно игнорируем ошибки вторичного логирования
-
             raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -5,7 +5,6 @@ import streamlit as st
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
-CHROMA_DIR = "chroma_langchain_db"
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
 API_URL = "http://localhost:8000"
 
@@ -32,7 +31,7 @@ def main():
             recommendation = latest_alert.get("recommendation", "Проверьте данные")
             timestamp = latest_alert.get("timestamp", "N/A")
 
-            st.error(f"**Обнаружен дрейф запросов!**")
+            st.error("**Обнаружен дрейф запросов!**")
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Drift Score", f"{score}")
@@ -145,11 +144,13 @@ def main():
                         message_placeholder.markdown(displayed + "▌")
                     message_placeholder.markdown(displayed)
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": displayed,
-                        "sources": sources_data,
-                    })
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": displayed,
+                            "sources": sources_data,
+                        }
+                    )
 
                     with st.expander("Найденные фрагменты документов"):
                         for idx, source in enumerate(sources_data):
