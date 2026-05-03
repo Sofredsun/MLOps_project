@@ -20,6 +20,16 @@ def fetch_alerts():
         return []
 
 
+@st.cache_data(ttl=30)
+def fetch_concept_alerts():
+    try:
+        response = requests.get(f"{API_URL}/monitoring/concept-alerts", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return []
+
+
 def main():
     # Блок отображения уведомлений о дрейфе
     alerts = fetch_alerts()
@@ -44,6 +54,27 @@ def main():
                 requests.get(f"{API_URL}/monitoring/drift", timeout=10)
                 st.cache_data.clear()
                 st.rerun()
+            st.divider()
+
+    concept_alerts = fetch_concept_alerts()
+    if concept_alerts:
+        latest = concept_alerts[0]
+        if latest.get("concept_drift_detected"):
+            st.warning("**Обнаружен Concept Drift - падение качества генерации!**")
+            issues = latest.get("issues", [])
+            for issue in issues:
+                st.error(f"{issue}")
+
+            metrics = latest.get("metrics", {})
+            cols = st.columns(3)
+            if "dislike_rate" in metrics:
+                cols[0].metric("Дизлайков", f"{metrics['dislike_rate']:.0%}")
+            if "avg_faithfulness" in metrics:
+                cols[1].metric("Faithfulness", metrics["avg_faithfulness"])
+            if "avg_answer_relevancy" in metrics:
+                cols[2].metric("Relevancy", metrics["avg_answer_relevancy"])
+
+            st.info(latest.get("recommendation", ""))
             st.divider()
 
     st.title("Школьный ИИ-ассистент")
@@ -92,16 +123,66 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    for message in st.session_state.messages:
+    for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            # Если в сообщении ассистента есть источники,
-            # то показываем их в раскрывающемся блоке
             if "sources" in message and message["sources"]:
                 with st.expander("Источники"):
                     for idx, source in enumerate(message["sources"]):
-                        st.markdown(f"**{idx + 1}.{source['source']}**")  # type: ignore
-                        st.caption(source["content"][:300] + "...")  # type: ignore
+                        st.markdown(f"**{idx + 1}.{source['source']}**")
+                        st.caption(source["content"][:300] + "...")
+
+            # Кнопки лайк/дизлайк только для сообщений ассистента
+            if message["role"] == "assistant" and "request_id" in message:
+                feedback_key = f"feedback_{message['request_id']}"
+
+                # Показываем кнопки только если ещё не оценено
+                if feedback_key not in st.session_state:
+                    col1, col2, col3 = st.columns([1, 1, 8])
+                    with col1:
+                        if st.button("👍", key=f"like_{i}"):
+                            try:
+                                requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "request_id": message["request_id"],
+                                        "question": st.session_state.messages[i - 1][
+                                            "content"
+                                        ],
+                                        "answer": message["content"],
+                                        "rating": 1,
+                                    },
+                                    timeout=10,
+                                )
+                                st.session_state[feedback_key] = "like"
+                                st.rerun()
+                            except requests.RequestException:
+                                st.error("Не удалось отправить оценку")
+                    with col2:
+                        if st.button("👎", key=f"dislike_{i}"):
+                            try:
+                                requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "request_id": message["request_id"],
+                                        "question": st.session_state.messages[i - 1][
+                                            "content"
+                                        ],
+                                        "answer": message["content"],
+                                        "rating": 0,
+                                    },
+                                    timeout=10,
+                                )
+                                st.session_state[feedback_key] = "dislike"
+                                st.rerun()
+                            except requests.RequestException:
+                                st.error("Не удалось отправить оценку")
+                else:
+                    # Показываем результат оценки
+                    if st.session_state[feedback_key] == "like":
+                        st.caption("Вы оценили ответ положительно")
+                    else:
+                        st.caption("Вы оценили ответ отрицательно")
 
     prefill = st.session_state.pop("prefill_question", None)
 
@@ -149,6 +230,7 @@ def main():
                             "role": "assistant",
                             "content": displayed,
                             "sources": sources_data,
+                            "request_id": data["request_id"],
                         }
                     )
 
@@ -164,6 +246,10 @@ def main():
                 except requests.RequestException as e:
                     st.error(f"Ошибка подключения к API: {e}")
                     st.info("Убедитесь, что FastAPI запущен: uvicorn api:app --reload")
+                else:
+                    # Перезапускаем скрипт, чтобы цикл отрисовки сверху
+                    # подхватил новое сообщение и отобразил кнопки лайк/дизлайк
+                    st.rerun()
 
 
 if __name__ == "__main__":

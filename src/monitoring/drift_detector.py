@@ -1,3 +1,4 @@
+import csv
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -7,25 +8,28 @@ from typing import Dict, List, Optional
 import numpy as np
 
 
-class SimpleEmbedder:
-    """
-    Заглушка-эмбеддер (простая хеш-функция) для демо.
-    Потом нужно заменить на HuggingFace.
-    """
+class HuggingFaceEmbedder:
+    """Настоящий эмбеддер на базе multilingual-e5-small"""
 
     def __init__(self):
-        self.dim = 384  # Размерность как у multilingual-e5-small
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        self._model = HuggingFaceEmbeddings(
+            model_name="intfloat/multilingual-e5-small",
+            model_kwargs={"device": "cpu"},
+        )
+        self.dim = 384
 
     def embed_query(self, text: str) -> np.ndarray:
-        np.random.seed(hash(text) % 2**32)
-        return np.random.randn(self.dim).astype(np.float32)
+        vector = self._model.embed_query(text)
+        return np.array(vector, dtype=np.float32)
 
 
 class MinimalDriftDetector:
     """MVP: Детектор дрейфа запросов"""
 
     def __init__(self, storage_path: str = "data/monitoring"):
-        self.embedder = SimpleEmbedder()
+        self.embedder = HuggingFaceEmbedder()
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.queries_file = self.storage_path / "queries.jsonl"
@@ -154,7 +158,7 @@ class MinimalDriftDetector:
         """
         Генерирует тестовые данные с искусственным дрейфом
         reference-запросы — про расписание/уроки,
-        current-запросы — про совсем другие темы (дрейф гарантирован).
+        current-запросы — про совсем другие темы.
         """
 
         reference_queries = [
@@ -207,3 +211,131 @@ class MinimalDriftDetector:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
         return {"seeded_reference": n_reference, "seeded_current": n_current}
+
+
+class ConceptDriftDetector:
+    """Concept/Target Drift: падение качества генерации по feedback и RAGAS-метрикам"""
+
+    def __init__(self, storage_path: str = "data/monitoring"):
+        self.storage_path = Path(storage_path)
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+        self.feedback_csv = Path("data/models/feedback.csv")
+        self.ragas_file = self.storage_path / "ragas_scores.jsonl"
+
+        # Пороги
+        self.dislike_rate_threshold = 0.4  # 40% дизлайков - алерт
+        self.faithfulness_threshold = 0.5  # ниже 0.5 - алерт
+        self.relevancy_threshold = 0.5  # ниже 0.5 - алерт
+        self.min_feedback_count = 5  # минимум отзывов для анализа
+
+    def log_quality_score(
+        self,
+        request_id: str,
+        question: str,
+        faithfulness: float,
+        answer_relevancy: float,
+    ):
+        """Логирует метрики качества после каждого /ask"""
+        record = {
+            "request_id": request_id,
+            "timestamp": datetime.now().isoformat(),
+            "question": question,
+            "faithfulness": round(faithfulness, 3),
+            "answer_relevancy": round(answer_relevancy, 3),
+        }
+        with open(self.ragas_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _load_feedback(self, hours: int = 24) -> List[Dict]:
+        if not self.feedback_csv.exists():
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        rows = []
+        with open(self.feedback_csv, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    ts = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S")
+                    if ts >= cutoff:
+                        rows.append(row)
+                except (ValueError, KeyError):
+                    continue
+        return rows
+
+    def _load_ragas_scores(self, hours: int = 24) -> List[Dict]:
+        if not self.ragas_file.exists():
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        scores = []
+        with open(self.ragas_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if datetime.fromisoformat(record["timestamp"]) >= cutoff:
+                    scores.append(record)
+        return scores
+
+    def detect_concept_drift(self, hours: int = 24) -> Dict:
+        now = datetime.now()
+        issues = []
+        metrics = {}
+
+        # Анализ feedback (дизлайки)
+        feedback_rows = self._load_feedback(hours)
+        if len(feedback_rows) >= self.min_feedback_count:
+            total = len(feedback_rows)
+            dislikes = sum(1 for r in feedback_rows if str(r.get("rating", "1")) == "0")
+            dislike_rate = dislikes / total
+            metrics["feedback_total"] = total
+            metrics["dislike_count"] = dislikes
+            metrics["dislike_rate"] = round(dislike_rate, 3)
+
+            if dislike_rate >= self.dislike_rate_threshold:
+                issues.append(
+                    f"Высокий процент дизлайков: {dislike_rate:.0%} "
+                    f"({dislikes}/{total}) за последние {hours}ч"
+                )
+        else:
+            metrics["feedback_total"] = len(feedback_rows)
+            metrics["feedback_note"] = (
+                f"Недостаточно отзывов (нужно {self.min_feedback_count})"
+            )
+
+        # Анализ RAGAS-метрик
+        ragas_scores = self._load_ragas_scores(hours)
+        if ragas_scores:
+            avg_faithfulness = np.mean([s["faithfulness"] for s in ragas_scores])
+            avg_relevancy = np.mean([s["answer_relevancy"] for s in ragas_scores])
+            metrics["ragas_samples"] = len(ragas_scores)
+            metrics["avg_faithfulness"] = round(float(avg_faithfulness), 3)
+            metrics["avg_answer_relevancy"] = round(float(avg_relevancy), 3)
+
+            if avg_faithfulness < self.faithfulness_threshold:
+                issues.append(
+                    f"Низкий Faithfulness: {avg_faithfulness:.3f} "
+                    f"(порог: {self.faithfulness_threshold})"
+                )
+            if avg_relevancy < self.relevancy_threshold:
+                issues.append(
+                    f"Низкий Answer Relevancy: {avg_relevancy:.3f} "
+                    f"(порог: {self.relevancy_threshold})"
+                )
+        else:
+            metrics["ragas_note"] = "Нет RAGAS-метрик за период"
+
+        drift_detected = len(issues) > 0
+
+        return {
+            "timestamp": now.isoformat(),
+            "window_hours": hours,
+            "concept_drift_detected": drift_detected,
+            "issues": issues,
+            "metrics": metrics,
+            "recommendation": (
+                "Проверьте качество ответов и базу знаний"
+                if drift_detected
+                else "Качество генерации стабильно"
+            ),
+        }

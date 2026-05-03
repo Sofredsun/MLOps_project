@@ -7,14 +7,17 @@ from pathlib import Path
 from typing import Optional
 
 import mlflow
+from datasets import Dataset
 from fastapi import FastAPI, HTTPException
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama.llms import OllamaLLM
 from pydantic import BaseModel
-
-from src.monitoring.drift_detector import MinimalDriftDetector
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy
+from sklearn.metrics.pairwise import cosine_similarity
+from src.monitoring.drift_detector import MinimalDriftDetector, ConceptDriftDetector
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
@@ -49,8 +52,10 @@ app = FastAPI(
     version="1.0.0",
 )
 drift_detector = MinimalDriftDetector()
+concept_detector = ConceptDriftDetector()
 _vector_store = None
 
+CONCEPT_ALERTS_FILE = Path("data/monitoring/concept_alerts.json")
 ALERTS_FILE = Path("data/monitoring/alerts.json")
 ALERTS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -72,6 +77,21 @@ def _save_alert_to_file(result: dict) -> None:
         json.dump(alerts, f, indent=2, ensure_ascii=False, default=str)
 
 
+def _save_concept_alert_to_file(result: dict) -> None:
+    """Сохраняет concept-алерт в JSON для отображения в Streamlit"""
+    alerts = []
+    if CONCEPT_ALERTS_FILE.exists():
+        try:
+            with open(CONCEPT_ALERTS_FILE, "r", encoding="utf-8") as f:
+                alerts = json.load(f)
+        except json.JSONDecodeError:
+            alerts = []
+    alerts.insert(0, result)
+    alerts = alerts[:50]
+    with open(CONCEPT_ALERTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(alerts, f, indent=2, ensure_ascii=False, default=str)
+
+
 def get_vector_store():
     global _vector_store
     if _vector_store is None:
@@ -84,6 +104,23 @@ def get_vector_store():
             embedding_function=embeddings,
         )
     return _vector_store
+
+
+def _compute_faithfulness(answer: str, context: str) -> float:
+    """Доля слов ответа найденных в контексте"""
+    answer_words = set(answer.lower().split())
+    context_words = set(context.lower().split())
+    if not answer_words:
+        return 0.0
+    return len(answer_words & context_words) / len(answer_words)
+
+
+def _compute_answer_relevancy(question: str, answer: str) -> float:
+    """Косинусное сходство между вопросом и ответом"""
+    embeddings = get_vector_store()._embedding_function
+    emb_q = embeddings.embed_query(question)
+    emb_a = embeddings.embed_query(answer)
+    return float(cosine_similarity([emb_q], [emb_a])[0][0])
 
 
 # СХЕМЫ
@@ -150,6 +187,26 @@ def get_alerts():
     return []
 
 
+@app.get("/monitoring/concept-drift")
+def check_concept_drift(hours: int = 24):
+    result = concept_detector.detect_concept_drift(hours=hours)
+    if result.get("concept_drift_detected"):
+        print(f"CONCEPT DRIFT DETECTED: {result['issues']}")
+        _save_concept_alert_to_file(result)
+    return result
+
+
+@app.get("/monitoring/concept-alerts")
+def get_concept_alerts():
+    if CONCEPT_ALERTS_FILE.exists():
+        try:
+            with open(CONCEPT_ALERTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
 @app.post("/monitoring/seed-test-data")
 def seed_test_data(n_reference: int = 30, n_current: int = 15):
     """Только для тестирования. Генерирует данные с дрейфом."""
@@ -162,7 +219,8 @@ def ask(request: AskRequest):
     if request.model not in AVAILABLE_MODELS:
         raise HTTPException(
             status_code=400,
-            detail=f"Модель '{request.model}' недоступна. Доступные: {AVAILABLE_MODELS}",
+            detail=f"Модель '{request.model}' недоступна. "
+            f"Доступные: {AVAILABLE_MODELS}",
         )
 
     request_id = str(uuid.uuid4())
@@ -203,6 +261,22 @@ def ask(request: AskRequest):
             mlflow.log_metric("latency", latency)
             mlflow.log_metric("context_length", len(context_text))
             mlflow.log_text(answer, "assistant_response.txt")
+
+            # Считаем RAGAS-метрики
+            try:
+                faith = _compute_faithfulness(answer, context_text)
+                relevancy = _compute_answer_relevancy(request.question, answer)
+
+                concept_detector.log_quality_score(
+                    request_id=request_id,
+                    question=request.question,
+                    faithfulness=faith,
+                    answer_relevancy=relevancy,
+                )
+                mlflow.log_metric("faithfulness", faith)
+                mlflow.log_metric("answer_relevancy", relevancy)
+            except Exception as quality_error:
+                print(f"Quality scoring failed: {quality_error}")
 
             sources = [
                 SourceItem(
