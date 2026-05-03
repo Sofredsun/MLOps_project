@@ -1,6 +1,16 @@
+import csv
+import os
+import time
+import uuid
 from contextlib import contextmanager
+from typing import Optional
 
+import mlflow
 from fastapi import FastAPI, HTTPException
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama.llms import OllamaLLM
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
@@ -416,5 +426,4 @@ def feedback(request: FeedbackRequest):
 Instrumentator(
     should_group_status_codes=False,
     excluded_handlers=["/metrics", "/health", "/docs", "/openapi.json"],
-    skip_paths=["/metrics", "/health"],
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
