@@ -1,3 +1,11 @@
+from contextlib import contextmanager
+
+from fastapi import FastAPI, HTTPException
+from prometheus_client import Counter
+from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel
+from typing import Optional
+import time
 import csv
 import json
 import os
@@ -43,12 +51,37 @@ TEMPLATE = """Вы — экспертный аналитик базы знани
 
 ОТВЕТ:"""
 
-mlflow.set_tracking_uri("http://localhost:5000")
-mlflow.set_experiment("School_RAG_System")
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
+_mlflow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME", "School_RAG_System")
+try:
+    mlflow.set_experiment(_mlflow_exp)
+except Exception:
+    pass
+
+
+@contextmanager
+def _optional_mlflow_run(run_name: str):
+    """Контекст MLflow run. yield True — активен run, можно вызывать mlflow.log_*."""
+    if os.getenv("MLFLOW_DISABLED", "").lower() in ("1", "true", "yes"):
+        yield False
+        return
+    try:
+        with mlflow.start_run(run_name=run_name):
+            yield True
+    except Exception:
+        yield False
+
+
+RAG_FEEDBACK_RATING_TOTAL = Counter(
+    "rag_feedback_rating_total",
+    "Отзывы пользователей по оценке rating (0 — дизлайк, 1 — лайк).",
+    ("rating",),
+)
 
 app = FastAPI(
     title="School RAG API",
     description="API для RAG-системы школьного ИИ-ассистента",
+    version="1.0.0",
     version="1.0.0",
 )
 drift_detector = MinimalDriftDetector()
@@ -97,10 +130,12 @@ def get_vector_store():
     if _vector_store is None:
         embeddings = HuggingFaceEmbeddings(
             model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
+            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
         )
         _vector_store = Chroma(
             collection_name="school_knowledge_base",
             persist_directory=CHROMA_DIR,
+            embedding_function=embeddings,
             embedding_function=embeddings,
         )
     return _vector_store
@@ -225,18 +260,24 @@ def ask(request: AskRequest):
 
     request_id = str(uuid.uuid4())
 
-    with mlflow.start_run(run_name=f"API_Query_{time.strftime('%H%M%S')}"):
+    with _optional_mlflow_run(run_name=f"API_Query_{time.strftime('%H%M%S')}") as _mf:
         try:
             start_time = time.time()
 
-            mlflow.log_param("request_id", request_id)
-            mlflow.log_param("model", request.model)
-            mlflow.log_param("k_retrieval", request.k_retrieval)
-            mlflow.log_param("question", request.question)
-            mlflow.log_param("embedding_model", "multilingual-e5-small")
+            if _mf:
+                mlflow.log_param("request_id", request_id)
+                mlflow.log_param("model", request.model)
+                mlflow.log_param("k_retrieval", request.k_retrieval)
+                mlflow.log_param("question", request.question)
+                mlflow.log_param("embedding_model", "multilingual-e5-small")
 
             vector_store = get_vector_store()
-            model = OllamaLLM(model=request.model, temperature=0.1)
+            ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+            model = OllamaLLM(
+                model=request.model,
+                temperature=0.1,
+                base_url=ollama_url,
+            )
             retriever = vector_store.as_retriever(
                 search_type="similarity", search_kwargs={"k": request.k_retrieval}
             )
@@ -256,11 +297,15 @@ def ask(request: AskRequest):
             answer = chain.invoke(
                 {"context": context_text, "question": request.question}
             )
+            answer = chain.invoke(
+                {"context": context_text, "question": request.question}
+            )
             latency = time.time() - start_time
 
-            mlflow.log_metric("latency", latency)
-            mlflow.log_metric("context_length", len(context_text))
-            mlflow.log_text(answer, "assistant_response.txt")
+            if _mf:
+                mlflow.log_metric("latency", latency)
+                mlflow.log_metric("context_length", len(context_text))
+                mlflow.log_text(answer, "assistant_response.txt")
 
             # Считаем RAGAS-метрики
             try:
@@ -292,6 +337,7 @@ def ask(request: AskRequest):
                 sources=sources,
                 latency=round(latency, 3),
                 model=request.model,
+                model=request.model,
             )
 
         except Exception as e:
@@ -305,10 +351,23 @@ def feedback(request: FeedbackRequest):
             status_code=400, detail="rating должен быть 0 (дизлайк) или 1 (лайк)"
         )
 
+    RAG_FEEDBACK_RATING_TOTAL.labels(rating=str(request.rating)).inc()
+
     os.makedirs(os.path.dirname(FEEDBACK_CSV), exist_ok=True)
     file_exists = os.path.exists(FEEDBACK_CSV)
 
     with open(FEEDBACK_CSV, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "timestamp",
+                "request_id",
+                "question",
+                "answer",
+                "rating",
+                "comment",
+            ],
+        )
         writer = csv.DictWriter(
             f,
             fieldnames=[
@@ -332,13 +391,30 @@ def feedback(request: FeedbackRequest):
                 "comment": request.comment or "",
             }
         )
+        writer.writerow(
+            {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "request_id": request.request_id,
+                "question": request.question,
+                "answer": request.answer,
+                "rating": request.rating,
+                "comment": request.comment or "",
+            }
+        )
 
-    # Логируем в MLflow тоже
-    with mlflow.start_run(run_name=f"Feedback_{request.request_id[:8]}"):
-        mlflow.log_param("request_id", request.request_id)
-        mlflow.log_param("question", request.question)
-        mlflow.log_metric("rating", request.rating)
-        if request.comment:
-            mlflow.log_text(request.comment, "feedback_comment.txt")
+    with _optional_mlflow_run(run_name=f"Feedback_{request.request_id[:8]}") as _mf:
+        if _mf:
+            mlflow.log_param("request_id", request.request_id)
+            mlflow.log_param("question", request.question)
+            mlflow.log_metric("rating", request.rating)
+            if request.comment:
+                mlflow.log_text(request.comment, "feedback_comment.txt")
 
     return FeedbackResponse(status="ok", message="Feedback сохранён")
+
+
+Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["/metrics", "/health", "/docs", "/openapi.json"],
+    skip_paths=["/metrics", "/health"],
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
