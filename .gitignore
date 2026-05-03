@@ -1,6 +1,5 @@
 # Система
 .DS_Store
-.vscode/
 .idea/
 *.swp
 __pycache__/
@@ -30,7 +29,6 @@ env
 *.swp
 *.swo
 *~
-.vscode
 .idea
 
 # Jupyter
