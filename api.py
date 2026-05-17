@@ -1,8 +1,10 @@
 import csv
+import json
 import os
 import time
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Optional
 
 import mlflow
@@ -14,36 +16,24 @@ from langchain_ollama.llms import OllamaLLM
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
-from typing import Optional
-import time
-import csv
-import json
-import os
-import time
-import uuid
-from pathlib import Path
-from typing import Optional
-
-import mlflow
-from datasets import Dataset
-from fastapi import FastAPI, HTTPException
-from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama.llms import OllamaLLM
-from pydantic import BaseModel
-from ragas import evaluate
-from ragas.metrics import faithfulness, answer_relevancy
 from sklearn.metrics.pairwise import cosine_similarity
-from src.monitoring.drift_detector import MinimalDriftDetector, ConceptDriftDetector
+
+from src.mlflow_registry import (
+    get_active_version,
+    info_to_dict,
+    list_versions,
+    register_new_version,
+)
+from src.monitoring.drift_detector import ConceptDriftDetector, MinimalDriftDetector
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
-DEFAULT_MODEL = "qwen2.5:7b"
-DEFAULT_K = 8
+DEFAULT_MODEL = os.getenv("DEFAULT_LLM_MODEL", "qwen2.5:7b")
+DEFAULT_K = int(os.getenv("DEFAULT_K_RETRIEVAL", "8"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL_NAME", "intfloat/multilingual-e5-small")
 
-TEMPLATE = """Вы — экспертный аналитик базы знаний школы. 
+TEMPLATE = """Вы — экспертный аналитик базы знаний школы.
 Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
 
 КОНТЕКСТ:
@@ -91,12 +81,12 @@ RAG_FEEDBACK_RATING_TOTAL = Counter(
 app = FastAPI(
     title="School RAG API",
     description="API для RAG-системы школьного ИИ-ассистента",
-    version="1.0.0",
-    version="1.0.0",
+    version="1.1.0",
 )
 drift_detector = MinimalDriftDetector()
 concept_detector = ConceptDriftDetector()
 _vector_store = None
+_active_model_version: Optional[dict] = None
 
 CONCEPT_ALERTS_FILE = Path("data/monitoring/concept_alerts.json")
 ALERTS_FILE = Path("data/monitoring/alerts.json")
@@ -139,16 +129,39 @@ def get_vector_store():
     global _vector_store
     if _vector_store is None:
         embeddings = HuggingFaceEmbeddings(
-            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
-            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
+            model_name=EMBEDDING_MODEL, model_kwargs={"device": "cpu"}
         )
         _vector_store = Chroma(
             collection_name="school_knowledge_base",
             persist_directory=CHROMA_DIR,
             embedding_function=embeddings,
-            embedding_function=embeddings,
         )
     return _vector_store
+
+
+def _current_rag_config() -> dict:
+    """Снимок конфигурации RAG-пайплайна — то, что мы регистрируем как версию модели."""
+    return {
+        "default_llm_model": DEFAULT_MODEL,
+        "available_llm_models": ",".join(AVAILABLE_MODELS),
+        "embedding_model": EMBEDDING_MODEL,
+        "k_retrieval": DEFAULT_K,
+        "chroma_collection": "school_knowledge_base",
+        "prompt_template_hash": str(hash(TEMPLATE)),
+        "api_version": app.version,
+    }
+
+
+def _refresh_active_model_version() -> Optional[dict]:
+    """Подгружает активную версию модели из MLflow Registry в кеш."""
+    global _active_model_version
+    try:
+        info = get_active_version()
+    except Exception as e:
+        print(f"[mlflow] не удалось получить активную версию модели: {e}")
+        return _active_model_version
+    _active_model_version = info_to_dict(info)
+    return _active_model_version
 
 
 def _compute_faithfulness(answer: str, context: str) -> float:
@@ -188,6 +201,7 @@ class AskResponse(BaseModel):
     sources: list[SourceItem]
     latency: float
     model: str
+    model_version: Optional[str] = None
 
 
 class FeedbackRequest(BaseModel):
@@ -203,10 +217,75 @@ class FeedbackResponse(BaseModel):
     message: str
 
 
+class RegisterModelRequest(BaseModel):
+    description: Optional[str] = None
+    promote_alias: bool = True
+
+
 # ЭНДПОИНТЫ
+@app.on_event("startup")
+def _on_startup() -> None:
+    if os.getenv("MLFLOW_AUTO_REGISTER_ON_STARTUP", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        try:
+            info = register_new_version(
+                _current_rag_config(),
+                description="Авторегистрация версии при старте сервиса",
+            )
+            globals()["_active_model_version"] = info_to_dict(info)
+            print(f"[mlflow] зарегистрирована версия {info.name} v{info.version}")
+        except Exception as e:
+            print(f"[mlflow] не удалось зарегистрировать модель при старте: {e}")
+            _refresh_active_model_version()
+    else:
+        _refresh_active_model_version()
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "School RAG API"}
+    return {
+        "status": "ok",
+        "service": "School RAG API",
+        "model_version": _active_model_version,
+    }
+
+
+@app.get("/models/active")
+def models_active():
+    """Текущая версия модели, на которую указывает alias (production)."""
+    info = _refresh_active_model_version()
+    if not info:
+        raise HTTPException(
+            status_code=404,
+            detail="В MLflow Registry нет активной версии. "
+            "Вызовите POST /models/register.",
+        )
+    return info
+
+
+@app.get("/models/versions")
+def models_versions(limit: int = 20):
+    """Список последних версий зарегистрированной модели."""
+    versions = [info_to_dict(v) for v in list_versions(limit=limit)]
+    return {"count": len(versions), "versions": versions}
+
+
+@app.post("/models/register")
+def models_register(req: RegisterModelRequest):
+    """Регистрирует новую версию модели в MLflow Model Registry."""
+    try:
+        info = register_new_version(
+            _current_rag_config(),
+            description=req.description,
+            promote_alias=req.promote_alias,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MLflow registry error: {e}")
+    globals()["_active_model_version"] = info_to_dict(info)
+    return _active_model_version
 
 
 @app.get("/monitoring/drift")
@@ -269,6 +348,8 @@ def ask(request: AskRequest):
         )
 
     request_id = str(uuid.uuid4())
+    active_version = _active_model_version or {}
+    model_version_str = active_version.get("version") if active_version else None
 
     with _optional_mlflow_run(run_name=f"API_Query_{time.strftime('%H%M%S')}") as _mf:
         try:
@@ -279,7 +360,15 @@ def ask(request: AskRequest):
                 mlflow.log_param("model", request.model)
                 mlflow.log_param("k_retrieval", request.k_retrieval)
                 mlflow.log_param("question", request.question)
-                mlflow.log_param("embedding_model", "multilingual-e5-small")
+                mlflow.log_param("embedding_model", EMBEDDING_MODEL)
+                if model_version_str:
+                    mlflow.log_param("registered_model_version", model_version_str)
+                if active_version.get("name"):
+                    mlflow.log_param("registered_model_name", active_version["name"])
+                    mlflow.set_tag(
+                        "mlflow.modelVersion",
+                        f"{active_version['name']}:{model_version_str}",
+                    )
 
             vector_store = get_vector_store()
             ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -307,9 +396,6 @@ def ask(request: AskRequest):
             answer = chain.invoke(
                 {"context": context_text, "question": request.question}
             )
-            answer = chain.invoke(
-                {"context": context_text, "question": request.question}
-            )
             latency = time.time() - start_time
 
             if _mf:
@@ -317,7 +403,6 @@ def ask(request: AskRequest):
                 mlflow.log_metric("context_length", len(context_text))
                 mlflow.log_text(answer, "assistant_response.txt")
 
-            # Считаем RAGAS-метрики
             try:
                 faith = _compute_faithfulness(answer, context_text)
                 relevancy = _compute_answer_relevancy(request.question, answer)
@@ -328,8 +413,9 @@ def ask(request: AskRequest):
                     faithfulness=faith,
                     answer_relevancy=relevancy,
                 )
-                mlflow.log_metric("faithfulness", faith)
-                mlflow.log_metric("answer_relevancy", relevancy)
+                if _mf:
+                    mlflow.log_metric("faithfulness", faith)
+                    mlflow.log_metric("answer_relevancy", relevancy)
             except Exception as quality_error:
                 print(f"Quality scoring failed: {quality_error}")
 
@@ -347,7 +433,7 @@ def ask(request: AskRequest):
                 sources=sources,
                 latency=round(latency, 3),
                 model=request.model,
-                model=request.model,
+                model_version=model_version_str,
             )
 
         except Exception as e:
@@ -378,29 +464,8 @@ def feedback(request: FeedbackRequest):
                 "comment",
             ],
         )
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "timestamp",
-                "request_id",
-                "question",
-                "answer",
-                "rating",
-                "comment",
-            ],
-        )
         if not file_exists:
             writer.writeheader()
-        writer.writerow(
-            {
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "request_id": request.request_id,
-                "question": request.question,
-                "answer": request.answer,
-                "rating": request.rating,
-                "comment": request.comment or "",
-            }
-        )
         writer.writerow(
             {
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
