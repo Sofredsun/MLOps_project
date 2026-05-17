@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: school-rag-api
+  namespace: school-rag
+  labels:
+    app: school-rag-api
+spec:
+  type: NodePort
+  selector:
+    app: school-rag-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      nodePort: 30080
