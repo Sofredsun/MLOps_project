@@ -61,7 +61,7 @@
       },
       "targets": [
         {
-          "expr": "rate(fastapi_requests_total[1m])",
+          "expr": "sum(rate(http_requests_total{handler!=\"/metrics\"}[1m]))",
           "legendFormat": "{{method}} {{path_name}}",
           "refId": "A"
         }
@@ -127,7 +127,7 @@
       "pluginVersion": "10.8.1",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(fastapi_requests_duration_seconds_bucket[5m]))*1000",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket[5m])) by (le))*1000",
           "legendFormat": "p95 latency",
           "refId": "A"
         }
@@ -217,17 +217,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, rate(fastapi_requests_duration_seconds_bucket[1m]))*1000",
+          "expr": "histogram_quantile(0.5, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p50 (median)",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(fastapi_requests_duration_seconds_bucket[1m]))*1000",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(fastapi_requests_duration_seconds_bucket[1m]))*1000",
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -311,8 +311,8 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(fastapi_requests_total{status_code=~\"[45]..\"}[5m])) by (status_code)",
-          "legendFormat": "{{status_code}}",
+          "expr": "sum(rate(http_requests_total{status=~\"[45]..\"}[5m])) by (status)",
+          "legendFormat": "{{status}}",
           "refId": "A"
         }
       ],
@@ -489,8 +489,8 @@
       },
       "targets": [
         {
-          "expr": "rate(fastapi_requests_total[1m])",
-          "legendFormat": "{{method}} {{path_name}}",
+          "expr": "sum by (handler, method)(rate(http_requests_total{handler!=\"/metrics\"}[1m]))",
+          "legendFormat": "{{method}} {{handler}}",
           "refId": "A"
         }
       ],
