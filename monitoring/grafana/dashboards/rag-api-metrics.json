@@ -25,22 +25,15 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Requests per second",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": []
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
         },
         "overrides": []
       },
@@ -51,28 +44,33 @@
         "y": 0
       },
       "id": 1,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "pieType": "donut"
-      },
       "targets": [
         {
           "expr": "sum(rate(http_requests_total{handler!=\"/metrics\"}[1m]))",
           "legendFormat": "{{method}} {{path_name}}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "RPS - Requests Per Second",
-      "type": "piechart"
+      "type": "timeseries",
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Average request latency",
       "fieldConfig": {
@@ -129,7 +127,11 @@
         {
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket[5m])) by (le))*1000",
           "legendFormat": "p95 latency",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Average Latency (p95)",
@@ -138,7 +140,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Request latency over time",
       "fieldConfig": {
@@ -219,17 +221,29 @@
         {
           "expr": "histogram_quantile(0.5, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p50 (median)",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         },
         {
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p95",
-          "refId": "B"
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         },
         {
           "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket[1m])) by (le))*1000",
           "legendFormat": "p99",
-          "refId": "C"
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Request Duration - Percentiles",
@@ -238,7 +252,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Error count by status code",
       "fieldConfig": {
@@ -313,7 +327,11 @@
         {
           "expr": "sum(rate(http_requests_total{status=~\"[45]..\"}[5m])) by (status)",
           "legendFormat": "{{status}}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Error Rate - 4xx/5xx",
@@ -322,64 +340,17 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "User feedback ratings distribution",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              }
-            ]
+            "lineWidth": 1,
+            "fillOpacity": 10
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rating=\"0\""
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rating=\"1\""
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -388,34 +359,33 @@
         "y": 16
       },
       "id": 5,
-      "options": {
-        "legend": {
-          "calcs": [
-            "value"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
       "targets": [
         {
           "expr": "rag_feedback_rating_total",
           "legendFormat": "{{rating}}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Feedback Ratings Distribution (0=Dislike, 1=Like)",
-      "type": "piechart"
+      "type": "timeseries",
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Total requests over time",
       "fieldConfig": {
@@ -491,7 +461,11 @@
         {
           "expr": "sum by (handler, method)(rate(http_requests_total{handler!=\"/metrics\"}[1m]))",
           "legendFormat": "{{method}} {{handler}}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          }
         }
       ],
       "title": "Request Rate Over Time",
