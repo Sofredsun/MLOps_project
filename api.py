@@ -1,8 +1,10 @@
 import csv
+import json
 import os
 import time
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Optional
 
 import mlflow
@@ -14,27 +16,8 @@ from langchain_ollama.llms import OllamaLLM
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
-from typing import Optional
-import time
-import csv
-import json
-import os
-import time
-import uuid
-from pathlib import Path
-from typing import Optional
-
-import mlflow
-from datasets import Dataset
-from fastapi import FastAPI, HTTPException
-from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama.llms import OllamaLLM
-from pydantic import BaseModel
-from ragas import evaluate
-from ragas.metrics import faithfulness, answer_relevancy
 from sklearn.metrics.pairwise import cosine_similarity
+
 from src.monitoring.drift_detector import MinimalDriftDetector, ConceptDriftDetector
 
 CHROMA_DIR = "chroma_langchain_db"
@@ -92,7 +75,6 @@ app = FastAPI(
     title="School RAG API",
     description="API для RAG-системы школьного ИИ-ассистента",
     version="1.0.0",
-    version="1.0.0",
 )
 drift_detector = MinimalDriftDetector()
 concept_detector = ConceptDriftDetector()
@@ -140,12 +122,10 @@ def get_vector_store():
     if _vector_store is None:
         embeddings = HuggingFaceEmbeddings(
             model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
-            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
         )
         _vector_store = Chroma(
             collection_name="school_knowledge_base",
             persist_directory=CHROMA_DIR,
-            embedding_function=embeddings,
             embedding_function=embeddings,
         )
     return _vector_store
@@ -346,7 +326,6 @@ def ask(request: AskRequest):
                 answer=answer,
                 sources=sources,
                 latency=round(latency, 3),
-                model=request.model,
                 model=request.model,
             )
 
