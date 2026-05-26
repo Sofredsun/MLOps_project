@@ -44,8 +44,7 @@ TEMPLATE = """Вы — экспертный аналитик базы знани
 
 ОТВЕТ:"""
 
-mlflow.set_tracking_uri(
-    os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
 _mlflow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME", "School_RAG_System")
 try:
     mlflow.set_experiment(_mlflow_exp)
@@ -195,8 +194,7 @@ def check_drift(hours: int = 24, test_mode: bool = False):
     result = drift_detector.detect_drift(hours=hours, test_mode=test_mode)
 
     if result.get("drift_detected"):
-        print(
-            f"DRIFT DETECTED: {result['drift_score']} > {result['threshold']}")
+        print(f"DRIFT DETECTED: {result['drift_score']} > {result['threshold']}")
         _save_alert_to_file(result)
 
     return result
