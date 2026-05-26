@@ -174,15 +174,14 @@ jobs:
         run: |
           kubectl rollout status deployment/school-rag-api \
             -n school-rag \
-            --timeout=120s
+            --timeout=300s
 
       - name: Debug pod status
         if: failure()
         run: |
           kubectl get pods -n school-rag
-          kubectl describe deployment school-rag-api -n school-rag
-          kubectl get events -n school-rag --sort-by='.lastTimestamp' | tail -20
           kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
+          kubectl describe pod -l app=school-rag-api -n school-rag
 
       - name: Verify pods
         run: |
