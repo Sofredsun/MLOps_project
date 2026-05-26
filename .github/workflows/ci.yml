@@ -158,6 +158,8 @@ jobs:
           resources:
             - namespace.yaml
             - fastapi/configmap.yaml
+            - fastapi/secret.yaml
+            - fastapi/pvc.yaml
             - fastapi/deployment.yaml
             - fastapi/service.yaml
           commonLabels:
