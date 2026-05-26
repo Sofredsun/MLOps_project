@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: school-rag
+
+resources:
+  - namespace.yaml
+  - mlflow/deployment.yaml
+  - ollama/deployment.yaml
+  - fastapi/pvc.yaml
+  - fastapi/configmap.yaml
+  - fastapi/secret.yaml
+  - fastapi/deployment.yaml
+  - fastapi/service.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: school-rag

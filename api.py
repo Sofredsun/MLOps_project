@@ -62,7 +62,7 @@ def _optional_mlflow_run(run_name: str):
         with mlflow.start_run(run_name=run_name):
             yield True
     except Exception:
-        yield False
+        pass
 
 
 RAG_FEEDBACK_RATING_TOTAL = Counter(
@@ -287,9 +287,6 @@ def ask(request: AskRequest):
             answer = chain.invoke(
                 {"context": context_text, "question": request.question}
             )
-            answer = chain.invoke(
-                {"context": context_text, "question": request.question}
-            )
             latency = time.time() - start_time
 
             if _mf:
@@ -357,29 +354,8 @@ def feedback(request: FeedbackRequest):
                 "comment",
             ],
         )
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "timestamp",
-                "request_id",
-                "question",
-                "answer",
-                "rating",
-                "comment",
-            ],
-        )
         if not file_exists:
             writer.writeheader()
-        writer.writerow(
-            {
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "request_id": request.request_id,
-                "question": request.question,
-                "answer": request.answer,
-                "rating": request.rating,
-                "comment": request.comment or "",
-            }
-        )
         writer.writerow(
             {
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
