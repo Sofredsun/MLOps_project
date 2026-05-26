@@ -18,7 +18,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.monitoring.drift_detector import MinimalDriftDetector, ConceptDriftDetector
+from src.monitoring.drift_detector import ConceptDriftDetector, MinimalDriftDetector
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
