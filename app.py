@@ -23,7 +23,8 @@ def fetch_alerts():
 @st.cache_data(ttl=30)
 def fetch_concept_alerts():
     try:
-        response = requests.get(f"{API_URL}/monitoring/concept-alerts", timeout=5)
+        response = requests.get(
+            f"{API_URL}/monitoring/concept-alerts", timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.RequestException:
@@ -38,7 +39,8 @@ def main():
         if latest_alert.get("drift_detected"):
             score = latest_alert.get("drift_score", "N/A")
             threshold = latest_alert.get("threshold", "N/A")
-            recommendation = latest_alert.get("recommendation", "Проверьте данные")
+            recommendation = latest_alert.get(
+                "recommendation", "Проверьте данные")
             timestamp = latest_alert.get("timestamp", "N/A")
 
             st.error("**Обнаружен дрейф запросов!**")
@@ -47,7 +49,8 @@ def main():
                 st.metric("Drift Score", f"{score}")
                 st.metric("Threshold", f"{threshold}")
             with col2:
-                st.metric("Time", timestamp[:16] if timestamp != "N/A" else "N/A")
+                st.metric("Time", timestamp[:16]
+                          if timestamp != "N/A" else "N/A")
                 st.info(f"{recommendation}")
 
             if st.button("Обновить статус дрейфа"):
@@ -60,7 +63,8 @@ def main():
     if concept_alerts:
         latest = concept_alerts[0]
         if latest.get("concept_drift_detected"):
-            st.warning("**Обнаружен Concept Drift - падение качества генерации!**")
+            st.warning(
+                "**Обнаружен Concept Drift - падение качества генерации!**")
             issues = latest.get("issues", [])
             for issue in issues:
                 st.error(f"{issue}")
@@ -236,16 +240,19 @@ def main():
 
                     with st.expander("Найденные фрагменты документов"):
                         for idx, source in enumerate(sources_data):
-                            st.markdown(f"**Фрагмент {idx + 1}:** `{source['source']}`")
+                            st.markdown(
+                                f"**Фрагмент {idx + 1}:** `{source['source']}`")
                             st.caption(source["content"][:400] + "...")
                             if idx < len(sources_data) - 1:
                                 st.divider()
 
-                    st.caption(f"Задержка: {latency:.2f}с | Модель: {selected_model}")
+                    st.caption(
+                        f"Задержка: {latency:.2f}с | Модель: {selected_model}")
 
                 except requests.RequestException as e:
                     st.error(f"Ошибка подключения к API: {e}")
-                    st.info("Убедитесь, что FastAPI запущен: uvicorn api:app --reload")
+                    st.info(
+                        "Убедитесь, что FastAPI запущен: uvicorn api:app --reload")
                 else:
                     # Перезапускаем скрипт, чтобы цикл отрисовки сверху
                     # подхватил новое сообщение и отобразил кнопки лайк/дизлайк
