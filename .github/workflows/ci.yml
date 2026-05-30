@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [develop, main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: "3.11"
+
 jobs:
   lint:
     name: Lint
@@ -16,19 +21,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
       - name: Install linting tools
         run: pip install flake8 black isort
 
       - name: Check formatting with black
-        run: black --check src/ app.py
+        run: black --check src/ api.py app.py
 
       - name: Check imports with isort
-        run: isort --check-only --profile black src/ app.py
+        run: isort --check-only --profile black src/ api.py app.py
 
       - name: Lint with flake8
-        run: flake8 src/ app.py --max-line-length=88 --extend-ignore=E203
+        run: flake8 src/ api.py app.py --max-line-length=88 --extend-ignore=E203
 
   test:
     name: Tests
@@ -40,18 +46,144 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tests
-        run: python -m pytest tests/ -v --tb=short
+      - name: Run tests with coverage
+        run: python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-report=xml
         env:
           PYTHONPATH: .
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+      
+  build:
+    name: Build Docker
+    runs-on: ubuntu-latest
+    needs: test
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build (and push on main)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          # На PR — только собираем образ, пушим только при merge в main
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Загружаем образ локально — нужно для deploy джоба с kind
+          load: ${{ github.ref != 'refs/heads/main' || github.event_name != 'push' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Запускается на feat/CI-CD и main
+  deploy:
+    name: Deploy to k8s (kind)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Поднимаем локальный Kubernetes кластер прямо в GitHub Actions runner
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: school-rag-cluster
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      # Собираем образ заново и загружаем в kind
+      # (kind — изолированный Docker, не видит основной daemon)
+      - name: Build image for kind
+        run: |
+          docker build -t mlops-fastapi:ci .
+
+      - name: Load image into kind
+        run: |
+          kind load docker-image mlops-fastapi:ci \
+            --name school-rag-cluster
+
+      # Патчим kustomize чтобы использовал только fastapi
+      # (ollama/mlflow не нужны для проверки деплоя)
+      - name: Patch kustomization for kind
+        run: |
+          cd k8s
+          cat > kustomization.yaml << 'KUSTOMIZE'
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          namespace: school-rag
+          resources:
+            - namespace.yaml
+            - fastapi/configmap.yaml
+            - fastapi/secret.yaml
+            - fastapi/pvc.yaml
+            - fastapi/deployment.yaml
+            - fastapi/service.yaml
+          commonLabels:
+            app.kubernetes.io/part-of: school-rag
+          KUSTOMIZE
+          kustomize edit set image mlops-fastapi=mlops-fastapi:ci
+
+      - name: Apply manifests
+        run: kubectl apply -k k8s/
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/school-rag-api \
+            -n school-rag \
+            --timeout=300s
+
+      - name: Debug pod status
+        if: failure()
+        run: |
+          kubectl get pods -n school-rag
+          kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
+          kubectl describe pod -l app=school-rag-api -n school-rag
+
+      - name: Verify pods
+        run: |
+          kubectl get pods -n school-rag
+          kubectl get services -n school-rag
