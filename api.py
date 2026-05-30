@@ -639,19 +639,20 @@ def retrain():
     Запускает переиндексацию ChromaDB и логирует MLflow Run.
     Выполняется в фоновом потоке — не блокирует API.
     """
-    global _retrain_status
 
     if _retrain_status["status"] == "running":
         return {"status": "already_running", "message": "Переобучение уже запущено"}
 
     def _do_retrain():
         global _vector_store
-        _retrain_status = {
-            "status": "running",
-            "started_at": datetime.now().isoformat(),
-            "finished_at": None,
-            "message": "Переиндексация запущена...",
-        }
+        _retrain_status.update(
+            {
+                "status": "running",
+                "started_at": datetime.now().isoformat(),
+                "finished_at": None,
+                "message": "Переиндексация запущена...",
+            }
+        )
         try:
             with _optional_mlflow_run(run_name="Manual_Retrain") as active:
 
