@@ -384,13 +384,32 @@ def get_drift_report():
         else "СТАБИЛЬНО"
     )
 
+    chart_html = (
+        "<table>" + chart_rows + "</table>"
+        if chart_rows
+        else '<p style="color:#475569;font-size:13px">'
+        "Нет исторических данных об алертах.</p>"
+    )
+
+    metrics_html = (
+        "<table>" + metrics_rows + "</table>"
+        if metrics_rows
+        else '<p style="color:#475569;font-size:13px">'
+        "Нет данных о метриках за последние 24 часа.</p>"
+    )
+
+    drift_score_style = (
+        f"margin-top:12px;font-size:28px;font-weight:bold;color:{drift_status_color}"
+    )
+
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <title>Отчёт о дрейфе — {now_str}</title>
   <style>
-    body {{ font-family: 'Segoe UI', Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:32px }}
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; background:#0f172a; 
+    color:#e2e8f0; margin:0; padding:32px }}
     h1 {{ color:#f8fafc; font-size:24px; margin-bottom:4px }}
     h2 {{ color:#94a3b8; font-size:14px; margin-bottom:32px; font-weight:normal }}
     h3 {{ color:#cbd5e1; font-size:16px; margin:24px 0 12px }}
@@ -409,16 +428,21 @@ def get_drift_report():
   <!-- Статус карточки -->
   <div style="display:flex;gap:16px;margin-bottom:20px">
     <div class="card" style="flex:1">
-      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Data Drift (запросы)</div>
-      <span class="badge" style="background:{drift_status_color}">{drift_status_text}</span>
-      <div style="margin-top:12px;font-size:28px;font-weight:bold;color:{drift_status_color}">
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Data Drift (запросы)
+      </div>
+      <span class="badge" style="background:{drift_status_color}">{drift_status_text}
+      </span>
+      <div style="{drift_score_style}">
         {drift_score}
       </div>
-      <div style="font-size:12px;color:#64748b">drift score (порог: {drift_result.get('threshold', 0.15)})</div>
+      <div style="font-size:12px;color:#64748b">drift score (порог: 
+{drift_result.get('threshold', 0.15)})</div>
     </div>
     <div class="card" style="flex:1">
-      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Concept Drift (качество)</div>
-      <span class="badge" style="background:{concept_status_color}">{concept_status_text}</span>
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">
+      Concept Drift (качество)</div>
+      <span class="badge" style="background:{concept_status_color}">
+{concept_status_text}</span>
       <div style="margin-top:12px;font-size:13px;color:#94a3b8">
         {len(concept_result.get('issues', []))} проблем выявлено
       </div>
@@ -438,15 +462,13 @@ def get_drift_report():
   <!-- График drift score -->
   <div class="card">
     <h3>История Drift Score</h3>
-    {'<table>' + chart_rows + '</table>' if chart_rows else
-    '<p style="color:#475569;font-size:13px">Нет исторических данных об алертах.</p>'}
+    {chart_html}
   </div>
 
   <!-- Метрики качества -->
   <div class="card">
     <h3>Метрики качества (Concept Drift)</h3>
-    {'<table>' + metrics_rows + '</table>' if metrics_rows else
-    '<p style="color:#475569;font-size:13px">Нет данных о метриках за последние 24 часа.</p>'}
+    {metrics_html}
   </div>
 
   <!-- Рекомендации -->
@@ -455,7 +477,8 @@ def get_drift_report():
     <ul style="margin:0;padding-left:20px">{rec_html}</ul>
   </div>
 
-  <div class="footer">School RAG System &nbsp;|&nbsp; Отчёт сгенерирован автоматически</div>
+  <div class="footer">School RAG System &nbsp;|&nbsp; Отчёт сгенерирован автоматически
+  </div>
 </body>
 </html>"""
 
