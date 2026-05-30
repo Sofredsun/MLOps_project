@@ -30,12 +30,18 @@ def fetch_concept_alerts():
         return []
 
 
-def main():
-    # Блок отображения уведомлений о дрейфе
+def render_drift_panel():
+    # Блок отображения уведомлений о дрейфе с кнопками "Скачать отчет" и "Переобучение"
     alerts = fetch_alerts()
-    if alerts:
-        latest_alert = alerts[0]
-        if latest_alert.get("drift_detected"):
+    concept_alerts = fetch_concept_alerts()
+
+    has_drift = any(a.get("drift_detected") for a in alerts)
+    has_concept_drift = any(a.get("concept_drift_detected") for a in concept_alerts)
+
+    # Показываем панель если есть хоть один дрейф
+    if has_drift or has_concept_drift:
+        if has_drift:
+            latest_alert = alerts[0]
             score = latest_alert.get("drift_score", "N/A")
             threshold = latest_alert.get("threshold", "N/A")
             recommendation = latest_alert.get("recommendation", "Проверьте данные")
@@ -50,32 +56,101 @@ def main():
                 st.metric("Time", timestamp[:16] if timestamp != "N/A" else "N/A")
                 st.info(f"{recommendation}")
 
-            if st.button("Обновить статус дрейфа"):
-                requests.get(f"{API_URL}/monitoring/drift", timeout=10)
-                st.cache_data.clear()
-                st.rerun()
-            st.divider()
-
-    concept_alerts = fetch_concept_alerts()
-    if concept_alerts:
+    if has_concept_drift:
         latest = concept_alerts[0]
-        if latest.get("concept_drift_detected"):
-            st.warning("**Обнаружен Concept Drift - падение качества генерации!**")
-            issues = latest.get("issues", [])
-            for issue in issues:
-                st.error(f"{issue}")
+        st.warning("**Обнаружен Concept Drift - падение качества генерации!**")
+        issues = latest.get("issues", [])
+        for issue in issues:
+            st.error(f"{issue}")
 
-            metrics = latest.get("metrics", {})
-            cols = st.columns(3)
-            if "dislike_rate" in metrics:
-                cols[0].metric("Дизлайков", f"{metrics['dislike_rate']:.0%}")
-            if "avg_faithfulness" in metrics:
-                cols[1].metric("Faithfulness", metrics["avg_faithfulness"])
-            if "avg_answer_relevancy" in metrics:
-                cols[2].metric("Relevancy", metrics["avg_answer_relevancy"])
+        metrics = latest.get("metrics", {})
+        cols = st.columns(3)
+        if "dislike_rate" in metrics:
+            cols[0].metric("Дизлайков", f"{metrics['dislike_rate']:.0%}")
+        if "avg_faithfulness" in metrics:
+            cols[1].metric("Faithfulness", metrics["avg_faithfulness"])
+        if "avg_answer_relevancy" in metrics:
+            cols[2].metric("Relevancy", metrics["avg_answer_relevancy"])
 
-            st.info(latest.get("recommendation", ""))
-            st.divider()
+        st.info(latest.get("recommendation", ""))
+
+    # Кнопки "Скачать отчет" и "Переобучение"
+    st.markdown("---")
+    col_report, col_retrain, col_refresh = st.columns([2, 2, 1])
+
+    with col_report:
+        if st.button("Скачать отчет", use_container_width=True):
+            with st.spinner("Генерирую отчет..."):
+                try:
+                    resp = requests.get(f"{API_URL}/monitoring/report", timeout=30)
+                    resp.raise_for_status()
+                    st.download_button(
+                        label="Сохранить HTML-отчет",
+                        data=resp.content,
+                        file_name="drift_report.html",
+                        mime="text/html",
+                        use_container_width=True,
+                    )
+                except requests.RequestException as e:
+                    st.error(f"Не удалось получить отчет: {e}")
+
+    with col_retrain:
+        _render_retrain_button()
+
+    with col_refresh:
+        if st.button(
+            "Обновить статус", help="Обновить статус", use_container_width=True
+        ):
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+
+def _render_retrain_button():
+    """Кнопка переобучения со статусом"""
+    # Проверяем текущий статус
+    retrain_status = st.session_state.get("retrain_status", {})
+    is_running = retrain_status.get("status") == "running"
+
+    if is_running:
+        # Обновляем статус с бэкенда
+        try:
+            resp = requests.get(f"{API_URL}/retrain/status", timeout=5)
+            current = resp.json()
+            st.session_state["retrain_status"] = current
+            if current["status"] == "running":
+                st.warning("Переобучение выполняется...")
+                return
+        except requests.RequestException:
+            pass
+
+    if st.button("Переобучение", use_container_width=True, disabled=is_running):
+        with st.spinner("Запускаю переобучение..."):
+            try:
+                resp = requests.post(f"{API_URL}/retrain", timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                st.session_state["retrain_status"] = {"status": "running"}
+
+                if data.get("status") == "already_running":
+                    st.warning("Переобучение уже запущено")
+                else:
+                    st.success("Переобучение запущено!")
+                    st.caption(data.get("message", ""))
+            except requests.RequestException as e:
+                st.error(f"Ошибка: {e}")
+
+    # Показываем результат прошлого запуска
+    if retrain_status.get("status") == "done":
+        st.success(f"Завершено: {retrain_status.get('finished_at', '')[:16]}")
+    elif retrain_status.get("status") == "error":
+        st.error(f"Ошибка {retrain_status.get('message', '')}")
+
+
+def main():
+    # Панель дрейфа (с кнопками отчета и переобучения)
+    render_drift_panel()
 
     st.title("Школьный ИИ-ассистент")
     st.markdown(
@@ -104,8 +179,7 @@ def main():
             "Во сколько начинается первый урок?",
             "Когда весенние каникулы?",
             "Зачем нужна внеурочная деятельность?",
-            "Как связаться с директором?",
-            "Что на завтрак в 5 классе?",
+            "Какой номер телефона директора?",
             "Какие правила поведения для родителей?",
         ]
 

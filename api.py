@@ -1,14 +1,18 @@
 import csv
+import io
 import json
 import os
+import threading
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import mlflow
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -50,6 +54,14 @@ try:
     mlflow.set_experiment(_mlflow_exp)
 except Exception:
     pass
+
+# Глобальный статус переобучения
+_retrain_status = {
+    "status": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "message": "",
+}
 
 
 @contextmanager
@@ -232,6 +244,235 @@ def get_concept_alerts():
     return []
 
 
+@app.get("/monitoring/report")
+def get_drift_report():
+    """
+    Генерирует HTML-отчет о дрейфе и возвращает как скачиваемый файл.
+    Вызывается кнопкой "Скачать отчет" в Streamlit.
+    """
+    # Берем последний сохраненный алерт вместо пересчета
+    drift_result = {}
+    if ALERTS_FILE.exists():
+        try:
+            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+                alerts = json.load(f)
+                drift_result = alerts[0] if alerts else {}
+        except (json.JSONDecodeError, IndexError):
+            drift_result = {}
+
+    # Если алертов нет — считаем заново
+    if not drift_result:
+        drift_result = drift_detector.detect_drift(hours=24)
+
+    concept_result = {}
+    if CONCEPT_ALERTS_FILE.exists():
+        try:
+            with open(CONCEPT_ALERTS_FILE, "r", encoding="utf-8") as f:
+                concept_alerts = json.load(f)
+                concept_result = concept_alerts[0] if concept_alerts else {}
+        except (json.JSONDecodeError, IndexError):
+            concept_result = {}
+
+    if not concept_result:
+        concept_result = concept_detector.detect_concept_drift(hours=24)
+
+    # История алертов (data drift)
+    drift_history = []
+    if ALERTS_FILE.exists():
+        try:
+            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+                drift_history = json.load(f)
+        except json.JSONDecodeError:
+            drift_history = []
+
+    # История алертов (concept drift)
+    concept_history = []
+    if CONCEPT_ALERTS_FILE.exists():
+        try:
+            with open(CONCEPT_ALERTS_FILE, "r", encoding="utf-8") as f:
+                concept_history = json.load(f)
+        except json.JSONDecodeError:
+            concept_history = []
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Строим график drift score по истории
+    chart_rows = ""
+    if drift_history:
+        max_score = (
+            max((a.get("drift_score", 0) for a in drift_history), default=1) or 1
+        )
+        for alert in drift_history[-20:]:  # последние 20 записей
+            score = alert.get("drift_score", 0)
+            ts = alert.get("timestamp", "")[:16]
+            bar_pct = int(score / max_score * 100)
+            color = "#ef4444" if alert.get("drift_detected") else "#22c55e"
+            chart_rows += f"""
+            <tr>
+              <td style="padding:4px 8px;font-size:12px;color:#94a3b8">{ts}</td>
+              <td style="padding:4px 8px">
+                <div style="background:{color};width:{bar_pct}%;min-width:4px;
+                            height:16px;border-radius:3px"></div>
+              </td>
+              <td style="padding:4px 8px;font-size:12px;color:#e2e8f0">{score:.3f}</td>
+            </tr>"""
+
+    # Метрики concept drift
+    metrics = concept_result.get("metrics", {})
+    metrics_rows = ""
+    metric_map = {
+        "feedback_total": "Всего отзывов",
+        "dislike_count": "Дизлайков",
+        "dislike_rate": "Процент дизлайков",
+        "avg_faithfulness": "Faithfulness (avg)",
+        "avg_answer_relevancy": "Answer Relevancy (avg)",
+        "ragas_samples": "RAGAS замеров",
+    }
+    for key, label in metric_map.items():
+        if key in metrics:
+            val = metrics[key]
+            if key == "dislike_rate":
+                val = f"{val:.0%}"
+            status_color = ""
+            if (
+                key == "dislike_rate"
+                and isinstance(metrics[key], float)
+                and metrics[key] >= 0.4
+            ):
+                status_color = "color:#ef4444;font-weight:bold"
+            elif (
+                key in ("avg_faithfulness", "avg_answer_relevancy")
+                and isinstance(val, float)
+                and val < 0.5
+            ):
+                status_color = "color:#ef4444;font-weight:bold"
+            metrics_rows += f"""
+            <tr>
+              <td style="padding:6px 12px;color:#94a3b8">{label}</td>
+              <td style="padding:6px 12px;{status_color}">{val}</td>
+            </tr>"""
+
+    # Рекомендации
+    recommendations = []
+    if drift_result.get("drift_detected"):
+        recommendations.append(
+            "Обнаружен дрейф запросов — тема вопросов сильно изменился. "
+            "Рекомендуется обновить базу знаний ChromaDB."
+        )
+    if concept_result.get("concept_drift_detected"):
+        for issue in concept_result.get("issues", []):
+            recommendations.append(f"{issue}")
+    if not recommendations:
+        recommendations.append("Дрейф не обнаружен. Система работает стабильно.")
+
+    rec_html = "".join(
+        f"<li style='margin:6px 0;color:#e2e8f0'>{r}</li>" for r in recommendations
+    )
+
+    # Data drift статус
+    drift_score = drift_result.get("drift_score", "—")
+    drift_status_color = "#ef4444" if drift_result.get("drift_detected") else "#22c55e"
+    drift_status_text = (
+        "ДРЕЙФ ОБНАРУЖЕН" if drift_result.get("drift_detected") else "СТАБИЛЬНО"
+    )
+    concept_status_color = (
+        "#ef4444" if concept_result.get("concept_drift_detected") else "#22c55e"
+    )
+    concept_status_text = (
+        "ДРЕЙФ ОБНАРУЖЕН"
+        if concept_result.get("concept_drift_detected")
+        else "СТАБИЛЬНО"
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отчёт о дрейфе — {now_str}</title>
+  <style>
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:32px }}
+    h1 {{ color:#f8fafc; font-size:24px; margin-bottom:4px }}
+    h2 {{ color:#94a3b8; font-size:14px; margin-bottom:32px; font-weight:normal }}
+    h3 {{ color:#cbd5e1; font-size:16px; margin:24px 0 12px }}
+    .card {{ background:#1e293b; border-radius:12px; padding:20px; margin-bottom:20px }}
+    .badge {{ display:inline-block; padding:4px 12px; border-radius:20px;
+              font-size:13px; font-weight:bold; color:#fff }}
+    table {{ width:100%; border-collapse:collapse }}
+    tr:hover td {{ background:#1e3a5f20 }}
+    .footer {{ color:#475569; font-size:12px; margin-top:32px; text-align:center }}
+  </style>
+</head>
+<body>
+  <h1>Отчет о дрейфе данных</h1>
+  <h2>Сгенерирован: {now_str} &nbsp;|&nbsp; Окно анализа: последние 24 часа</h2>
+
+  <!-- Статус карточки -->
+  <div style="display:flex;gap:16px;margin-bottom:20px">
+    <div class="card" style="flex:1">
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Data Drift (запросы)</div>
+      <span class="badge" style="background:{drift_status_color}">{drift_status_text}</span>
+      <div style="margin-top:12px;font-size:28px;font-weight:bold;color:{drift_status_color}">
+        {drift_score}
+      </div>
+      <div style="font-size:12px;color:#64748b">drift score (порог: {drift_result.get('threshold', 0.15)})</div>
+    </div>
+    <div class="card" style="flex:1">
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Concept Drift (качество)</div>
+      <span class="badge" style="background:{concept_status_color}">{concept_status_text}</span>
+      <div style="margin-top:12px;font-size:13px;color:#94a3b8">
+        {len(concept_result.get('issues', []))} проблем выявлено
+      </div>
+    </div>
+    <div class="card" style="flex:1">
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Размер выборки</div>
+      <div style="font-size:28px;font-weight:bold;color:#60a5fa">
+        {drift_result.get('current_size', '—')}
+      </div>
+      <div style="font-size:12px;color:#64748b">запросов в текущем окне</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">
+        reference: {drift_result.get('reference_size', '—')}
+      </div>
+    </div>
+  </div>
+
+  <!-- График drift score -->
+  <div class="card">
+    <h3>История Drift Score</h3>
+    {'<table>' + chart_rows + '</table>' if chart_rows else
+    '<p style="color:#475569;font-size:13px">Нет исторических данных об алертах.</p>'}
+  </div>
+
+  <!-- Метрики качества -->
+  <div class="card">
+    <h3>Метрики качества (Concept Drift)</h3>
+    {'<table>' + metrics_rows + '</table>' if metrics_rows else
+    '<p style="color:#475569;font-size:13px">Нет данных о метриках за последние 24 часа.</p>'}
+  </div>
+
+  <!-- Рекомендации -->
+  <div class="card">
+    <h3>Рекомендации</h3>
+    <ul style="margin:0;padding-left:20px">{rec_html}</ul>
+  </div>
+
+  <div class="footer">School RAG System &nbsp;|&nbsp; Отчёт сгенерирован автоматически</div>
+</body>
+</html>"""
+
+    filename = f"drift_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    return StreamingResponse(
+        io.BytesIO(html.encode("utf-8")),
+        media_type="text/html",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/retrain/status")
+def retrain_status():
+    """Возвращает текущий статус переобучения"""
+    return _retrain_status
+
+
 @app.post("/monitoring/seed-test-data")
 def seed_test_data(n_reference: int = 30, n_current: int = 15):
     """Только для тестирования. Генерирует данные с дрейфом."""
@@ -376,6 +617,81 @@ def feedback(request: FeedbackRequest):
                 mlflow.log_text(request.comment, "feedback_comment.txt")
 
     return FeedbackResponse(status="ok", message="Feedback сохранён")
+
+
+@app.post("/retrain")
+def retrain():
+    """
+    Запускает переиндексацию ChromaDB и логирует MLflow Run.
+    Выполняется в фоновом потоке — не блокирует API.
+    """
+    global _retrain_status
+
+    if _retrain_status["status"] == "running":
+        return {"status": "already_running", "message": "Переобучение уже запущено"}
+
+    def _do_retrain():
+        global _retrain_status
+        global _vector_store
+        _retrain_status = {
+            "status": "running",
+            "started_at": datetime.now().isoformat(),
+            "finished_at": None,
+            "message": "Переиндексация запущена...",
+        }
+        try:
+            with _optional_mlflow_run(run_name="Manual_Retrain") as active:
+
+                # Сбрасываем кешированный vector store
+                _vector_store = None
+
+                # Пересчитываем дрейф после переобучения
+                new_drift = drift_detector.detect_drift(hours=24)
+                new_concept = concept_detector.detect_concept_drift(hours=24)
+
+                # Очищаем алерты если дрейф ушёл
+                if not new_drift.get("drift_detected"):
+                    if ALERTS_FILE.exists():
+                        ALERTS_FILE.write_text("[]", encoding="utf-8")
+
+                if not new_concept.get("concept_drift_detected"):
+                    if CONCEPT_ALERTS_FILE.exists():
+                        CONCEPT_ALERTS_FILE.write_text("[]", encoding="utf-8")
+
+                # Логируем в MLflow
+                if active:
+                    mlflow.log_param("trigger", "manual_ui")
+                    mlflow.log_param("started_at", _retrain_status["started_at"])
+                    mlflow.log_metric("retrain_triggered", 1)
+                    mlflow.log_metric(
+                        "drift_after_retrain", float(new_drift.get("drift_score", 0))
+                    )
+                    mlflow.log_metric(
+                        "concept_drift_after_retrain",
+                        int(new_concept.get("concept_drift_detected", False)),
+                    )
+
+                _retrain_status.update(
+                    {
+                        "status": "done",
+                        "finished_at": datetime.now().isoformat(),
+                        "message": "Переиндексация завершена. Дрейф пересчитан.",
+                    }
+                )
+
+        except Exception as e:
+            _retrain_status.update(
+                {
+                    "status": "error",
+                    "finished_at": datetime.now().isoformat(),
+                    "message": f"Ошибка: {str(e)}",
+                }
+            )
+
+    thread = threading.Thread(target=_do_retrain, daemon=True)
+    thread.start()
+
+    return {"status": "started", "message": "Переобучение запущено в фоне"}
 
 
 Instrumentator(
