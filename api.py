@@ -285,15 +285,6 @@ def get_drift_report():
         except json.JSONDecodeError:
             drift_history = []
 
-    # История алертов (concept drift)
-    concept_history = []
-    if CONCEPT_ALERTS_FILE.exists():
-        try:
-            with open(CONCEPT_ALERTS_FILE, "r", encoding="utf-8") as f:
-                concept_history = json.load(f)
-        except json.JSONDecodeError:
-            concept_history = []
-
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Строим график drift score по истории
@@ -408,7 +399,7 @@ def get_drift_report():
   <meta charset="UTF-8">
   <title>Отчёт о дрейфе — {now_str}</title>
   <style>
-    body {{ font-family: 'Segoe UI', Arial, sans-serif; background:#0f172a; 
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; background:#0f172a;
     color:#e2e8f0; margin:0; padding:32px }}
     h1 {{ color:#f8fafc; font-size:24px; margin-bottom:4px }}
     h2 {{ color:#94a3b8; font-size:14px; margin-bottom:32px; font-weight:normal }}
@@ -435,7 +426,7 @@ def get_drift_report():
       <div style="{drift_score_style}">
         {drift_score}
       </div>
-      <div style="font-size:12px;color:#64748b">drift score (порог: 
+      <div style="font-size:12px;color:#64748b">drift score (порог:
 {drift_result.get('threshold', 0.15)})</div>
     </div>
     <div class="card" style="flex:1">
@@ -654,7 +645,6 @@ def retrain():
         return {"status": "already_running", "message": "Переобучение уже запущено"}
 
     def _do_retrain():
-        global _retrain_status
         global _vector_store
         _retrain_status = {
             "status": "running",
