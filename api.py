@@ -1,15 +1,19 @@
+import sys
+from pathlib import Path
+
+# Добавляем src в путь для импорта utils
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 import csv
 import io
 import json
 import os
 import subprocess
-import sys
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import mlflow
@@ -25,10 +29,7 @@ from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
 
 from src.monitoring.drift_detector import ConceptDriftDetector, MinimalDriftDetector
-
-# Добавляем src в путь для импорта utils
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-from utils.config import PATHS
+from utils.config import PATHS  # noqa: E402
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
