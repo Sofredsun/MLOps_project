@@ -31,7 +31,8 @@ def fetch_concept_alerts():
 
 
 def render_drift_panel():
-    # Блок отображения уведомлений о дрейфе с кнопками "Скачать отчет" и "Переобучение"
+    # Блок отображения уведомлений о дрейфе с кнопками
+    # "Скачать отчет" и "Обновить базу знаний"
     alerts = fetch_alerts()
     concept_alerts = fetch_concept_alerts()
 
@@ -74,7 +75,7 @@ def render_drift_panel():
 
         st.info(latest.get("recommendation", ""))
 
-    # Кнопки "Скачать отчет" и "Переобучение"
+    # Кнопки "Скачать отчет" и "Обновить базу знаний"
     st.markdown("---")
     col_report, col_retrain, col_refresh = st.columns([2, 2, 1])
 
@@ -108,7 +109,7 @@ def render_drift_panel():
 
 
 def _render_retrain_button():
-    """Кнопка переобучения со статусом"""
+    """Кнопка "Обновить базу знаний" со статусом"""
     # Проверяем текущий статус
     retrain_status = st.session_state.get("retrain_status", {})
     is_running = retrain_status.get("status") == "running"
@@ -120,13 +121,13 @@ def _render_retrain_button():
             current = resp.json()
             st.session_state["retrain_status"] = current
             if current["status"] == "running":
-                st.warning("Переобучение выполняется...")
+                st.warning("Обновление базы знаний выполняется...")
                 return
         except requests.RequestException:
             pass
 
-    if st.button("Переобучение", use_container_width=True, disabled=is_running):
-        with st.spinner("Запускаю переобучение..."):
+    if st.button("Обновить базу знаний", use_container_width=True, disabled=is_running):
+        with st.spinner("Запускаю обновление базы знаний..."):
             try:
                 resp = requests.post(f"{API_URL}/retrain", timeout=10)
                 resp.raise_for_status()
@@ -134,9 +135,9 @@ def _render_retrain_button():
                 st.session_state["retrain_status"] = {"status": "running"}
 
                 if data.get("status") == "already_running":
-                    st.warning("Переобучение уже запущено")
+                    st.warning("Обновление базы знаний уже запущено")
                 else:
-                    st.success("Переобучение запущено!")
+                    st.success("Обновление базы знаний запущено!")
                     st.caption(data.get("message", ""))
             except requests.RequestException as e:
                 st.error(f"Ошибка: {e}")
@@ -149,7 +150,7 @@ def _render_retrain_button():
 
 
 def main():
-    # Панель дрейфа (с кнопками отчета и переобучения)
+    # Панель дрейфа (с кнопками)
     render_drift_panel()
 
     st.title("Школьный ИИ-ассистент")
