@@ -26,6 +26,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from src.monitoring.drift_detector import ConceptDriftDetector, MinimalDriftDetector
 
+# Добавляем src в путь для импорта utils
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+from utils.config import PATHS
+
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
 AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
@@ -544,6 +548,9 @@ def ask(request: AskRequest):
             answer = chain.invoke(
                 {"context": context_text, "question": request.question}
             )
+            if hasattr(answer, "content"):
+                answer = answer.content
+            answer = str(answer).strip()
             latency = time.time() - start_time
 
             if _mf:
@@ -676,14 +683,34 @@ def retrain():
 
                 # Переиндексируем ChromaDB
                 try:
-                    subprocess.run(
-                        [sys.executable, "src/pipeline.py"],
-                        cwd="/app",
-                        check=True,
-                        timeout=300,
+                    for stage_script in [
+                        "src/stages/download_data.py",
+                        "src/stages/splitter.py",
+                    ]:
+                        subprocess.run(
+                            [sys.executable, stage_script],
+                            cwd="/app",
+                            check=True,
+                            timeout=300,
+                            env={**os.environ, "PYTHONPATH": "/app/src"},
+                        )
+
+                    # Stage 3 только создание ChromaDB без полного тестирования
+                    from src.stages.evaluation import (
+                        initialize_embeddings,
+                        create_chroma_db,
+                        load_chunks,
                     )
+
+                    embeddings = initialize_embeddings()
+                    train_chunks = load_chunks(PATHS.TRAIN_DIR, "training")
+                    create_chroma_db(train_chunks, embeddings)
+
                     pipeline_status = "success"
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                except (
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ) as e:
                     pipeline_status = f"failed: {str(e)}"
 
                 # Сбрасываем кеш
@@ -739,7 +766,10 @@ def retrain():
     thread = threading.Thread(target=_do_retrain, daemon=True)
     thread.start()
 
-    return {"status": "started", "message": "Обновление базы знаний запущено в фоне"}
+    return {
+        "status": "started",
+        "message": "Обновление базы знаний запущено в фоне",
+    }
 
 
 Instrumentator(

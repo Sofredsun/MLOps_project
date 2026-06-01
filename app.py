@@ -283,7 +283,7 @@ def main():
                             "model": selected_model,
                             "k_retrieval": k_retrieval,
                         },
-                        timeout=120,
+                        timeout=300,
                     )
                     response.raise_for_status()
                     data = response.json()

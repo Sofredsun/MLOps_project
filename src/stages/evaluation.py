@@ -1,4 +1,5 @@
 import json
+import os
 import pickle
 import sys
 import time
@@ -39,7 +40,7 @@ AVAILABLE_LLM_MODELS = STAGE3.llm.AVAILABLE_MODELS
 RETRIEVER_K = STAGE3.llm.RETRIEVER_K
 EVAL_DATASET_PATH = PATHS.EVAL_DATASET_PATH
 
-mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
 mlflow.set_experiment("School_RAG_Evaluation")
 
 
@@ -101,13 +102,19 @@ def create_chroma_db(
         embedding_function=embeddings,
     )
 
+    # Очищаем коллекцию перед переиндексацией
+    existing = db._collection.count()
+    if existing > 0:
+        print(f"Очищаю {existing} старых чанков...")
+        db._collection.delete(where={"source": {"$ne": ""}})
+
     batch_size = 20
     for i in tqdm(range(0, len(chunks), batch_size), desc="Загрузка чанков в ChromaDB"):
         batch = chunks[i : i + batch_size]
         try:
             db.add_documents(batch)
         except Exception as e:
-            print(f"\n⚠️  Ошибка на батче {i // batch_size}: {e}")
+            print(f"\nОшибка на батче {i // batch_size}: {e}")
     print(f"ChromaDB создана с {len(chunks)} чанками")
     return db
 
