@@ -697,8 +697,8 @@ def retrain():
 
                     # Stage 3 только создание ChromaDB без полного тестирования
                     from src.stages.evaluation import (
-                        initialize_embeddings,
                         create_chroma_db,
+                        initialize_embeddings,
                         load_chunks,
                     )
 
