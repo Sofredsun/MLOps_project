@@ -1,13 +1,19 @@
+import sys
+from pathlib import Path
+
+# Добавляем src в путь для импорта utils
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 import csv
 import io
 import json
 import os
+import subprocess
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import mlflow
@@ -23,6 +29,7 @@ from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
 
 from src.monitoring.drift_detector import ConceptDriftDetector, MinimalDriftDetector
+from utils.config import PATHS  # noqa: E402
 
 CHROMA_DIR = "chroma_langchain_db"
 FEEDBACK_CSV = "data/models/feedback.csv"
@@ -542,6 +549,9 @@ def ask(request: AskRequest):
             answer = chain.invoke(
                 {"context": context_text, "question": request.question}
             )
+            if hasattr(answer, "content"):
+                answer = answer.content
+            answer = str(answer).strip()
             latency = time.time() - start_time
 
             if _mf:
@@ -641,7 +651,10 @@ def retrain():
     """
 
     if _retrain_status["status"] == "running":
-        return {"status": "already_running", "message": "Переобучение уже запущено"}
+        return {
+            "status": "already_running",
+            "message": "Обновление базы знаний уже запущено",
+        }
 
     def _do_retrain():
         global _vector_store
@@ -656,14 +669,58 @@ def retrain():
         try:
             with _optional_mlflow_run(run_name="Manual_Retrain") as active:
 
-                # Сбрасываем кешированный vector store
+                # Пытаемся получить новые данные через DVC
+                try:
+                    result = subprocess.run(
+                        ["dvc", "pull"],
+                        cwd="/app",
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    dvc_status = "success" if result.returncode == 0 else "skipped"
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    dvc_status = "skipped"
+
+                # Переиндексируем ChromaDB
+                try:
+                    for stage_script in [
+                        "src/stages/download_data.py",
+                        "src/stages/splitter.py",
+                    ]:
+                        subprocess.run(
+                            [sys.executable, stage_script],
+                            cwd="/app",
+                            check=True,
+                            timeout=300,
+                            env={**os.environ, "PYTHONPATH": "/app/src"},
+                        )
+
+                    # Stage 3 только создание ChromaDB без полного тестирования
+                    from src.stages.evaluation import (
+                        create_chroma_db,
+                        initialize_embeddings,
+                        load_chunks,
+                    )
+
+                    embeddings = initialize_embeddings()
+                    train_chunks = load_chunks(PATHS.TRAIN_DIR, "training")
+                    create_chroma_db(train_chunks, embeddings)
+
+                    pipeline_status = "success"
+                except (
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ) as e:
+                    pipeline_status = f"failed: {str(e)}"
+
+                # Сбрасываем кеш
                 _vector_store = None
 
-                # Пересчитываем дрейф после переобучения
+                # Пересчитываем дрейф
                 new_drift = drift_detector.detect_drift(hours=24)
                 new_concept = concept_detector.detect_concept_drift(hours=24)
 
-                # Очищаем алерты если дрейф ушёл
                 if not new_drift.get("drift_detected"):
                     if ALERTS_FILE.exists():
                         ALERTS_FILE.write_text("[]", encoding="utf-8")
@@ -675,10 +732,12 @@ def retrain():
                 # Логируем в MLflow
                 if active:
                     mlflow.log_param("trigger", "manual_ui")
-                    mlflow.log_param("started_at", _retrain_status["started_at"])
+                    mlflow.log_param("dvc_pull_status", dvc_status)
+                    mlflow.log_param("pipeline_status", pipeline_status)
                     mlflow.log_metric("retrain_triggered", 1)
                     mlflow.log_metric(
-                        "drift_after_retrain", float(new_drift.get("drift_score", 0))
+                        "drift_after_retrain",
+                        float(new_drift.get("drift_score", 0)),
                     )
                     mlflow.log_metric(
                         "concept_drift_after_retrain",
@@ -689,7 +748,10 @@ def retrain():
                     {
                         "status": "done",
                         "finished_at": datetime.now().isoformat(),
-                        "message": "Переиндексация завершена. Дрейф пересчитан.",
+                        "message": (
+                            f"Переиндексация завершена. "
+                            f"DVC: {dvc_status}, Pipeline: {pipeline_status}"
+                        ),
                     }
                 )
 
@@ -705,7 +767,10 @@ def retrain():
     thread = threading.Thread(target=_do_retrain, daemon=True)
     thread.start()
 
-    return {"status": "started", "message": "Переобучение запущено в фоне"}
+    return {
+        "status": "started",
+        "message": "Обновление базы знаний запущено в фоне",
+    }
 
 
 Instrumentator(

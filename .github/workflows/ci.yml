@@ -34,7 +34,7 @@ jobs:
         run: isort --check-only --profile black src/ api.py app.py
 
       - name: Lint with flake8
-        run: flake8 src/ api.py app.py --max-line-length=88 --extend-ignore=E203
+        run: flake8 src/ api.py app.py --max-line-length=88 --extend-ignore=E203,E402
 
   test:
     name: Tests
