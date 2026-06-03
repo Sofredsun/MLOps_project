@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     libgomp1 \
     curl \
+	git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -19,6 +20,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 RUN mkdir -p /app/data/models /app/chroma_langchain_db
+
+RUN git init && \
+    git config user.email "docker@local" && \
+    git config user.name "docker" && \
+    git add -A && \
+    git commit -m "init" --allow-empty
 
 EXPOSE 8000
 

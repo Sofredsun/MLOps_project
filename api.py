@@ -672,7 +672,7 @@ def retrain():
                 # Пытаемся получить новые данные через DVC
                 try:
                     result = subprocess.run(
-                        ["dvc", "pull"],
+                        ["dvc", "pull", "--force"],
                         cwd="/app",
                         capture_output=True,
                         text=True,
@@ -695,18 +695,6 @@ def retrain():
                             timeout=300,
                             env={**os.environ, "PYTHONPATH": "/app/src"},
                         )
-
-                    # Stage 3 только создание ChromaDB без полного тестирования
-                    from src.stages.evaluation import (
-                        create_chroma_db,
-                        initialize_embeddings,
-                        load_chunks,
-                    )
-
-                    embeddings = initialize_embeddings()
-                    train_chunks = load_chunks(PATHS.TRAIN_DIR, "training")
-                    create_chroma_db(train_chunks, embeddings)
-
                     pipeline_status = "success"
                 except (
                     subprocess.CalledProcessError,
@@ -714,46 +702,51 @@ def retrain():
                 ) as e:
                     pipeline_status = f"failed: {str(e)}"
 
-                # Сбрасываем кеш
-                _vector_store = None
-
-                # Пересчитываем дрейф
-                new_drift = drift_detector.detect_drift(hours=24)
-                new_concept = concept_detector.detect_concept_drift(hours=24)
-
-                if not new_drift.get("drift_detected"):
-                    if ALERTS_FILE.exists():
-                        ALERTS_FILE.write_text("[]", encoding="utf-8")
-
-                if not new_concept.get("concept_drift_detected"):
-                    if CONCEPT_ALERTS_FILE.exists():
-                        CONCEPT_ALERTS_FILE.write_text("[]", encoding="utf-8")
-
                 # Логируем в MLflow
                 if active:
                     mlflow.log_param("trigger", "manual_ui")
                     mlflow.log_param("dvc_pull_status", dvc_status)
                     mlflow.log_param("pipeline_status", pipeline_status)
                     mlflow.log_metric("retrain_triggered", 1)
-                    mlflow.log_metric(
-                        "drift_after_retrain",
-                        float(new_drift.get("drift_score", 0)),
-                    )
-                    mlflow.log_metric(
-                        "concept_drift_after_retrain",
-                        int(new_concept.get("concept_drift_detected", False)),
-                    )
 
-                _retrain_status.update(
-                    {
-                        "status": "done",
-                        "finished_at": datetime.now().isoformat(),
-                        "message": (
-                            f"Переиндексация завершена. "
-                            f"DVC: {dvc_status}, Pipeline: {pipeline_status}"
-                        ),
-                    }
-                )
+            # Stage 3 только создание ChromaDB без полного тестирования
+            from src.stages.evaluation import (
+                create_chroma_db,
+                initialize_embeddings,
+                load_chunks,
+            )
+
+            embeddings = initialize_embeddings()
+            train_chunks = load_chunks(PATHS.TRAIN_DIR, "training")
+            create_chroma_db(train_chunks, embeddings)
+
+            # Сбрасываем кеш
+            _vector_store = None
+            # Переинициализируем
+            _vector_store = get_vector_store()
+
+            # Пересчитываем дрейф
+            new_drift = drift_detector.detect_drift(hours=24)
+            new_concept = concept_detector.detect_concept_drift(hours=24)
+
+            if not new_drift.get("drift_detected"):
+                if ALERTS_FILE.exists():
+                    ALERTS_FILE.write_text("[]", encoding="utf-8")
+
+            if not new_concept.get("concept_drift_detected"):
+                if CONCEPT_ALERTS_FILE.exists():
+                    CONCEPT_ALERTS_FILE.write_text("[]", encoding="utf-8")
+
+            _retrain_status.update(
+                {
+                    "status": "done",
+                    "finished_at": datetime.now().isoformat(),
+                    "message": (
+                        f"Переиндексация завершена. "
+                        f"DVC: {dvc_status}, Pipeline: {pipeline_status}"
+                    ),
+                }
+            )
 
         except Exception as e:
             _retrain_status.update(

@@ -96,17 +96,24 @@ def create_chroma_db(
     chunks: List[Document], embeddings: HuggingFaceEmbeddings
 ) -> Chroma:
     print(f"\nСоздание ChromaDB в {CHROMA_DIR}...")
+
     db = Chroma(
         collection_name="school_knowledge_base",
         persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings,
     )
+    try:
+        db.delete_collection()
+        print("Старая коллекция удалена")
+    except Exception:
+        pass
 
-    # Очищаем коллекцию перед переиндексацией
-    existing = db._collection.count()
-    if existing > 0:
-        print(f"Очищаю {existing} старых чанков...")
-        db._collection.delete(where={"source": {"$ne": ""}})
+    # Создаем новую чистую коллекцию
+    db = Chroma(
+        collection_name="school_knowledge_base",
+        persist_directory=str(CHROMA_DIR),
+        embedding_function=embeddings,
+    )
 
     batch_size = 20
     for i in tqdm(range(0, len(chunks), batch_size), desc="Загрузка чанков в ChromaDB"):

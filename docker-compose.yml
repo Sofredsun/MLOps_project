@@ -27,10 +27,12 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_EXPERIMENT_NAME: School_RAG_System
       MLFLOW_DISABLED: "0"
+      GIT_PYTHON_REFRESH: quiet
+      GOOGLE_APPLICATION_CREDENTIALS: /app/.dvc/gdrive_service_account.json
     volumes:
       - ./chroma_langchain_db:/app/chroma_langchain_db
       - ./data:/app/data
-      - ./data/models/feedback.csv:/app/data/models/feedback.csv
+      - ./.dvc/gdrive_service_account.json:/app/.dvc/gdrive_service_account.json:ro
     depends_on:
       - ollama
       - mlflow
