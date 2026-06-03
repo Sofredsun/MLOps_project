@@ -2,7 +2,8 @@ FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    GIT_PYTHON_REFRESH=quiet
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -21,11 +22,10 @@ COPY . .
 
 RUN mkdir -p /app/data/models /app/chroma_langchain_db
 
-RUN git init && \
+# Нужен для dvc и GitPython (они ожидают git-репозиторий)
+RUN git init -q && \
     git config user.email "docker@local" && \
-    git config user.name "docker" && \
-    git add -A && \
-    git commit -m "init" --allow-empty
+    git config user.name "docker"
 
 EXPOSE 8000
 

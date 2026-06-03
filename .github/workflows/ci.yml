@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [feat/CI-CD]  
+    branches: [feat/CI-CD, main]  
   pull_request:
     branches: [develop, main]
 
@@ -75,7 +75,8 @@ jobs:
       packages: write
 
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      # Для передачи одного тега в деплой
+      sha-tag: ${{ steps.sha-tag.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -84,12 +85,17 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute SHA tag
+        id: sha-tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Extract Docker metadata
         id: meta
@@ -100,21 +106,16 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build (and push on main)
-        id: build
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          # На PR — только собираем образ, пушим только при merge в main
-          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Загружаем образ локально — нужно для deploy джоба с kind
-          load: ${{ github.ref != 'refs/heads/main' || github.event_name != 'push' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Запускается на feat/CI-CD и main
   deploy:
     name: Deploy to k8s (kind)
     runs-on: ubuntu-latest
@@ -123,7 +124,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Поднимаем локальный Kubernetes кластер прямо в GitHub Actions runner
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
@@ -135,19 +135,21 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v2
 
-      # Собираем образ заново и загружаем в kind
-      # (kind — изолированный Docker, не видит основной daemon)
-      - name: Build image for kind
-        run: |
-          docker build -t mlops-fastapi:ci .
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pull image from GHCR
+        run: docker pull ${{ needs.build.outputs.sha-tag }}
+ 
       - name: Load image into kind
         run: |
-          kind load docker-image mlops-fastapi:ci \
+          kind load docker-image ${{ needs.build.outputs.sha-tag }} \
             --name school-rag-cluster
-
-      # Патчим kustomize чтобы использовал только fastapi
-      # (ollama/mlflow не нужны для проверки деплоя)
+ 
       - name: Patch kustomization for kind
         run: |
           cd k8s
@@ -165,25 +167,20 @@ jobs:
           commonLabels:
             app.kubernetes.io/part-of: school-rag
           KUSTOMIZE
-          kustomize edit set image mlops-fastapi=mlops-fastapi:ci
-
+          kustomize edit set image mlops-fastapi=${{ needs.build.outputs.sha-tag }}
+ 
       - name: Apply manifests
         run: kubectl apply -k k8s/
-
+ 
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/school-rag-api \
             -n school-rag \
             --timeout=300s
-
+ 
       - name: Debug pod status
         if: failure()
         run: |
           kubectl get pods -n school-rag
           kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
-          kubectl describe pod -l app=school-rag-api -n school-rag
-
-      - name: Verify pods
-        run: |
-          kubectl get pods -n school-rag
-          kubectl get services -n school-rag
+          kubectl describe pod -l app=school-rag-api -n school-rag      
