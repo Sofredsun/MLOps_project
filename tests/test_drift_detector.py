@@ -16,9 +16,10 @@ def _fake_embedding(seed: int = 0) -> list:
 
 @pytest.fixture
 def mock_embedder():
-    """Mock-эмбеддер: embed_query возвращает разные векторы по seed из текста."""
     emb = MagicMock()
-    emb.embed_query.side_effect = lambda text: _fake_embedding(seed=hash(text) % 1000)
+    emb.embed_query.side_effect = lambda text: np.array(
+        _fake_embedding(seed=hash(text) % 1000)
+    )
     return emb
 
 
