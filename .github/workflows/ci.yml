@@ -52,11 +52,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt flake8 black isort pytest pytest-cov "dvc[gdrive]"
 
-      - name: Set up GDrive credentials
-        run: |
-          mkdir -p /app/.dvc
-          echo '${{ secrets.GDRIVE_SERVICE_ACCOUNT_KEY }}' > /app/.dvc/gdrive_service_account.json
-
       - name: Run tests with coverage
         run: python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-report=xml
         env:

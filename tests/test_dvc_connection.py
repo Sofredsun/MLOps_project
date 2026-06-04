@@ -16,10 +16,7 @@ def _run_dvc(*args, timeout: int = 60) -> subprocess.CompletedProcess:
 
 def _cloud_credentials_available() -> bool:
     """Проверяет наличие credentials для Google Drive (dvc remote)."""
-    return (
-        os.path.exists("/app/.dvc/gdrive_service_account.json")
-        or os.getenv("GDRIVE_SERVICE_ACCOUNT_KEY") is not None
-    )
+    return os.getenv("GDRIVE_CREDENTIALS_DATA") is not None
 
 
 class TestDVCInstallation:
