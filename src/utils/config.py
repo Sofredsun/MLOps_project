@@ -69,8 +69,8 @@ class Stage2Config:
     paths: PathConfig = field(default_factory=PathConfig)
 
     # Параметры сплиттинга
-    PDF_CHUNK_SIZE: int = 1200
-    PDF_CHUNK_OVERLAP: int = 300
+    PDF_CHUNK_SIZE: int = 800
+    PDF_CHUNK_OVERLAP: int = 200
     MARKDOWN_HEADERS: List[tuple] = field(
         default_factory=lambda: [("#", "Header 1"), ("##", "Header 2")]
     )
@@ -95,7 +95,7 @@ class EmbeddingConfig:
     """Конфигурация для эмбеддингов"""
 
     # Модель эмбеддингов
-    MODEL_NAME: str = "intfloat/multilingual-e5-small"
+    MODEL_NAME: str = "intfloat/multilingual-e5-large"
     DEVICE: str = "cpu"  # или "cuda" для GPU
     BATCH_SIZE: int = 32
 

@@ -140,7 +140,7 @@ def get_vector_store():
     global _vector_store
     if _vector_store is None:
         embeddings = HuggingFaceEmbeddings(
-            model_name="intfloat/multilingual-e5-small", model_kwargs={"device": "cpu"}
+            model_name="intfloat/multilingual-e5-large", model_kwargs={"device": "cpu"}
         )
         _vector_store = Chroma(
             collection_name="school_knowledge_base",
@@ -521,7 +521,7 @@ def ask(request: AskRequest):
                 mlflow.log_param("model", request.model)
                 mlflow.log_param("k_retrieval", request.k_retrieval)
                 mlflow.log_param("question", request.question)
-                mlflow.log_param("embedding_model", "multilingual-e5-small")
+                mlflow.log_param("embedding_model", "multilingual-e5-large")
 
             vector_store = get_vector_store()
             ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -718,7 +718,9 @@ def retrain():
 
             embeddings = initialize_embeddings()
             train_chunks = load_chunks(PATHS.TRAIN_DIR, "training")
-            create_chroma_db(train_chunks, embeddings)
+            val_chunks = load_chunks(PATHS.VAL_DIR, "validation")
+            all_chunks = train_chunks + val_chunks
+            create_chroma_db(all_chunks, embeddings)
 
             # Сбрасываем кеш
             _vector_store = None
