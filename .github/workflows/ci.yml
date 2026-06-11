@@ -151,6 +151,8 @@ jobs:
           kind load docker-image ${{ needs.build.outputs.sha-tag }} \
             --name school-rag-cluster
  
+      # Патчим kustomize: разворачиваем весь стек, кроме ollama
+      # (ollama требует слишком много памяти/диска для GitHub runner-а)
       - name: Patch kustomization for kind
         run: |
           cd k8s
@@ -160,28 +162,55 @@ jobs:
           namespace: school-rag
           resources:
             - namespace.yaml
+            - mlflow/deployment.yaml
             - fastapi/configmap.yaml
             - fastapi/secret.yaml
             - fastapi/pvc.yaml
             - fastapi/deployment.yaml
             - fastapi/service.yaml
+            - streamlit/deployment.yaml
+            - streamlit/service.yaml
+            - monitoring/prometheus.yaml
+            - monitoring/grafana.yaml
+          configMapGenerator:
+            - name: prometheus-config
+              files:
+                - prometheus.yml=monitoring/prometheus-config.yml
+            - name: grafana-datasources
+              files:
+                - prometheus.yml=monitoring/grafana/provisioning/datasources/prometheus.yml
+            - name: grafana-dashboard-provider
+              files:
+                - dashboards.yml=monitoring/grafana/provisioning/dashboards/dashboards.yml
+            - name: grafana-dashboards
+              files:
+                - monitoring/grafana/dashboards/rag-api-metrics.json
+                - monitoring/grafana/dashboards/rag-api-overview.json
           commonLabels:
             app.kubernetes.io/part-of: school-rag
           KUSTOMIZE
           kustomize edit set image mlops-fastapi=${{ needs.build.outputs.sha-tag }}
- 
+
       - name: Apply manifests
         run: kubectl apply -k k8s/
- 
+
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/school-rag-api \
-            -n school-rag \
-            --timeout=300s
- 
+          for d in school-rag-api school-rag-ui mlflow prometheus grafana; do
+            echo "::group::rollout $d"
+            kubectl rollout status deployment/$d -n school-rag --timeout=300s
+            echo "::endgroup::"
+          done
+
       - name: Debug pod status
         if: failure()
         run: |
-          kubectl get pods -n school-rag
+          kubectl get pods -n school-rag -o wide
+          kubectl describe pods -n school-rag
           kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
-          kubectl describe pod -l app=school-rag-api -n school-rag      
+          kubectl logs -l app=school-rag-ui -n school-rag --tail=50 || true
+
+      - name: Verify pods
+        run: |
+          kubectl get pods -n school-rag
+          kubectl get services -n school-rag      

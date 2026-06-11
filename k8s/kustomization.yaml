@@ -12,6 +12,25 @@ resources:
   - fastapi/secret.yaml
   - fastapi/deployment.yaml
   - fastapi/service.yaml
+  - streamlit/deployment.yaml
+  - streamlit/service.yaml
+  - monitoring/prometheus.yaml
+  - monitoring/grafana.yaml
+
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml=monitoring/prometheus-config.yml
+  - name: grafana-datasources
+    files:
+      - prometheus.yml=monitoring/grafana/provisioning/datasources/prometheus.yml
+  - name: grafana-dashboard-provider
+    files:
+      - dashboards.yml=monitoring/grafana/provisioning/dashboards/dashboards.yml
+  - name: grafana-dashboards
+    files:
+      - monitoring/grafana/dashboards/rag-api-metrics.json
+      - monitoring/grafana/dashboards/rag-api-overview.json
 
 commonLabels:
   app.kubernetes.io/part-of: school-rag

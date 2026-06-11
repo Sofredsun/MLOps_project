@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: school-rag-ui
+  namespace: school-rag
+  labels:
+    app: school-rag-ui
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: school-rag-ui
+  template:
+    metadata:
+      labels:
+        app: school-rag-ui
+    spec:
+      containers:
+        - name: streamlit
+          # Тот же образ, что и у API (содержит app.py и streamlit)
+          image: mlops-fastapi:latest
+          imagePullPolicy: IfNotPresent
+          command: ["streamlit"]
+          args:
+            - run
+            - app.py
+            - --server.port=8501
+            - --server.address=0.0.0.0
+            - --server.headless=true
+          ports:
+            - name: http
+              containerPort: 8501
+          env:
+            # Внутри кластера UI ходит на сервис API, а не на localhost
+            - name: API_URL
+              value: "http://school-rag-api:80"
+          startupProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
