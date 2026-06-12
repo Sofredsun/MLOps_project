@@ -26,8 +26,8 @@ spec:
     spec:
       containers:
         - name: api
-          image: mlops-fastapi:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/bitterrch/mlops_project:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8000

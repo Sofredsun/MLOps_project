@@ -23,8 +23,8 @@ spec:
       containers:
         - name: streamlit
           # Тот же образ, что и у API (содержит app.py и streamlit)
-          image: mlops-fastapi:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/bitterrch/mlops_project:latest
+          imagePullPolicy: Always
           command: ["streamlit"]
           args:
             - run
