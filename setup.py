@@ -2,12 +2,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="school-rag-mlops",
-    version="1.0.0",
+    version="1.2.0",
     author="Anna Novikova, Sofia Mikhaleva",
     description="MLOps pipeline for School RAG System",
-    # Ищем пакеты внутри папки src/
     packages=find_packages(where="src"),
-    # Указываем, что корень импортов начинается с src/
     package_dir={"": "src"},
     python_requires=">=3.8",
     install_requires=[

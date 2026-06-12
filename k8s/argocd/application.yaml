@@ -8,7 +8,7 @@ spec:
 
   source:
     repoURL: https://github.com/bitterrch/mlops_project
-    targetRevision: feat/CI-CD
+    targetRevision: main
     path: k8s
 
   destination:
