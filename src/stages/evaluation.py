@@ -52,13 +52,14 @@ def compute_semantic_similarity(
     return float(cosine_similarity([emb1], [emb2])[0][0])
 
 
-def compute_faithfulness(answer: str, context: str) -> float:
-    answer_words = set(answer.lower().split())
-    context_words = set(context.lower().split())
-    if not answer_words:
+def compute_faithfulness(
+    embeddings_model: HuggingFaceEmbeddings, answer: str, context: str
+) -> float:
+    if not answer.strip() or not context.strip():
         return 0.0
-    overlap = answer_words & context_words
-    return len(overlap) / len(answer_words)
+    emb_answer = embeddings_model.embed_query(answer)
+    emb_context = embeddings_model.embed_query(context)
+    return float(cosine_similarity([emb_answer], [emb_context])[0][0])
 
 
 def load_chunks(chunk_dir: Path, chunk_type: str = "training") -> List[Document]:
@@ -96,17 +97,24 @@ def create_chroma_db(
     chunks: List[Document], embeddings: HuggingFaceEmbeddings
 ) -> Chroma:
     print(f"\nСоздание ChromaDB в {CHROMA_DIR}...")
+
     db = Chroma(
         collection_name="school_knowledge_base",
         persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings,
     )
+    try:
+        db.delete_collection()
+        print("Старая коллекция удалена")
+    except Exception:
+        pass
 
-    # Очищаем коллекцию перед переиндексацией
-    existing = db._collection.count()
-    if existing > 0:
-        print(f"Очищаю {existing} старых чанков...")
-        db._collection.delete(where={"source": {"$ne": ""}})
+    # Создаем новую чистую коллекцию
+    db = Chroma(
+        collection_name="school_knowledge_base",
+        persist_directory=str(CHROMA_DIR),
+        embedding_function=embeddings,
+    )
 
     batch_size = 20
     for i in tqdm(range(0, len(chunks), batch_size), desc="Загрузка чанков в ChromaDB"):
@@ -139,6 +147,7 @@ def test_rag_system(
 
 ИНСТРУКЦИЯ:
 Проанализируй контекст. Если ответ найден частично, напиши то, что удалось найти.
+Отвечай ТОЛЬКО на русском языке.
 ОТВЕТ:"""
 
     prompt = ChatPromptTemplate.from_template(template)
@@ -195,7 +204,7 @@ def test_rag_system(
                     latency = time.time() - start_time
 
                     sim = compute_semantic_similarity(embeddings, answer, ground_truth)
-                    faith = compute_faithfulness(answer, context_text)
+                    faith = compute_faithfulness(embeddings, answer, context_text)
 
                     sim_list.append(sim)
                     faith_list.append(faith)
@@ -324,10 +333,12 @@ def main():
 
     print("\nЗагружаю данные...")
     train_chunks = load_chunks(TRAIN_DIR, "training")
+    val_chunks = load_chunks(VAL_DIR, "validation")
+    all_chunks = train_chunks + val_chunks
     eval_df = load_eval_dataset(EVAL_DATASET_PATH)
 
     embeddings = initialize_embeddings()
-    db = create_chroma_db(train_chunks, embeddings)
+    db = create_chroma_db(all_chunks, embeddings)
 
     print("\nТестирование RAG системы...")
     results = test_rag_system(db, eval_df, embeddings)
