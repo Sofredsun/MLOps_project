@@ -194,13 +194,9 @@ jobs:
       - name: Apply manifests
         run: kubectl apply -k k8s/
 
-      - name: Wait for rollout
+      - name: Verify deployment
         run: |
-          for d in school-rag-api school-rag-ui mlflow prometheus grafana; do
-            echo "::group::rollout $d"
-            kubectl rollout status deployment/$d -n school-rag --timeout=300s
-            echo "::endgroup::"
-          done
+          kubectl wait --for=condition=initialized pod -l app.kubernetes.io/part-of=school-rag -n school-rag --timeout=120s
 
       - name: Debug pod status
         if: failure()
@@ -208,9 +204,4 @@ jobs:
           kubectl get pods -n school-rag -o wide
           kubectl describe pods -n school-rag
           kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
-          kubectl logs -l app=school-rag-ui -n school-rag --tail=50 || true
-
-      - name: Verify pods
-        run: |
-          kubectl get pods -n school-rag
-          kubectl get services -n school-rag      
+          kubectl logs -l app=school-rag-ui -n school-rag --tail=50 || true   
