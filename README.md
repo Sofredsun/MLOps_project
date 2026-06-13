@@ -81,6 +81,26 @@ Continuous Delivery реализован через Argo CD по GitOps-подх
 
 ---
 
+## CI/CD Pipeline
+
+### Continuous Integration (GitHub Actions)
+
+При каждом пуше в `feat/CI-CD` (для тестирования) и `main`, а также при PR в `develop` и `main` автоматически запускается пайплайн из четырёх джобов:
+
+1. **Lint** — проверка форматирования (Black, isort, Flake8)
+2. **Tests** — запуск тестов с покрытием (pytest, coverage)
+3. **Build Docker** — сборка и публикация образа в GHCR (`ghcr.io/bitterrch/mlops_project`)
+4. **Deploy to k8s (kind)** — развёртывание всего стека в изолированном Kubernetes-кластере
+
+### Continuous Delivery (Argo CD)
+
+Argo CD следит за веткой `main` и директорией `k8s/`. При мерже в `main`:
+- CI собирает образ и публикует его с тегом `latest` в GHCR
+- Argo CD обнаруживает новый коммит и автоматически синхронизирует кластер
+- Все сервисы обновляются по GitOps-подходу без ручного вмешательства
+
+---
+
 ## Запуск проекта
 
 ### Локальный запуск
