@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: school-rag-api-config
+  namespace: school-rag
+  labels:
+    app: school-rag-api
+data:
+  OLLAMA_BASE_URL: "http://ollama:11434"
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  MLFLOW_EXPERIMENT_NAME: "School_RAG_System"
+  MLFLOW_DISABLED: "0"
+  MLFLOW_REGISTERED_MODEL_NAME: "school-rag-assistant"
+  MLFLOW_MODEL_ALIAS: "production"
+  MLFLOW_AUTO_REGISTER_ON_STARTUP: "1"
+  DEFAULT_LLM_MODEL: "qwen2.5:7b"
+  DEFAULT_K_RETRIEVAL: "8"

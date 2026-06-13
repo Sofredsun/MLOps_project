@@ -1,4 +1,45 @@
-chroma_langchain_db/
+# Система
+.DS_Store
+.idea/
+*.swp
+__pycache__/
+*.pyc
+
+# MLOps артефакты (НЕ коммитируем)
+mlruns/
+mlartifacts/
+mlflow.db
+*.pkl
+*.pickle
+.dvc.lock
+
+# Data (большие файлы управляются через DVC)
+data/processed/
+data/chunks/
+data/models/
+
+# Виртуальные окружения
 venv/
-.ipynb_checkpoints
-src/.idea/
+env/
+.venv
+env
+.env
+
+# IDE
+*.swp
+*.swo
+*~
+.idea
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+/data
+/chroma_langchain_db
+
+gdrive_key.json
+gdrive_oauth_key.json

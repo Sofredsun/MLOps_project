@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: school-rag-api
+  namespace: school-rag
+  labels:
+    app: school-rag-api
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: school-rag-api
+  template:
+    metadata:
+      labels:
+        app: school-rag-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/bitterrch/mlops_project:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: school-rag-api-config
+            - secretRef:
+                name: school-rag-api-secret
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 3Gi
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+            - name: chroma-data
+              mountPath: /app/chroma_langchain_db
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: school-rag-api-data
+        - name: chroma-data
+          persistentVolumeClaim:
+            claimName: school-rag-chroma

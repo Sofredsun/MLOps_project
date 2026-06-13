@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'rag-api-monitor'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  # - "alert_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'fastapi'
+    # В кластере scrape идёт через Service API (port 80 -> 8000)
+    static_configs:
+      - targets: ['school-rag-api:80']
+    scrape_interval: 5s
+    metrics_path: '/metrics'

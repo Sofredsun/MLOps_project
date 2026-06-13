@@ -1,94 +1,196 @@
-import streamlit as st
-from langchain_ollama.llms import OllamaLLM
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
+import os
 import time
+
+import requests
+import streamlit as st
 
 st.set_page_config(page_title="Школьный ИИ-ассистент", layout="wide")
 
-DATA_DIR = 'data/school_knowledge_base'
-CHROMA_DIR = 'chroma_langchain_db'
-
-AVAILABLE_MODELS = ['qwen2.5:7b', 'llama3.2']
-
-@st.cache_resource
-def load_knowledge_base():
-    """
-    Загружает векторную базу знаний. 
-    Кешируется при первом запуске.
-    """
-    embeddings = HuggingFaceEmbeddings(
-        model_name="intfloat/multilingual-e5-small",
-        model_kwargs={'device': 'cpu'}
-    )
-    vector_store = Chroma(
-        collection_name='school_knowledge_base',
-        persist_directory=CHROMA_DIR,
-        embedding_function=embeddings
-    )
-    return vector_store
+AVAILABLE_MODELS = ["qwen2.5:7b", "llama3.2"]
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 
-# Шаблон промпта для языковой модели
-TEMPLATE = """Вы — экспертный аналитик базы знаний школы. 
-Ваша цель: найти ответ на вопрос в предоставленных фрагментах документов.
+@st.cache_data(ttl=30)
+def fetch_alerts():
+    """Загружает алерты с бэкенда каждые 30 секунд"""
+    try:
+        response = requests.get(f"{API_URL}/monitoring/alerts", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return []
 
-КОНТЕКСТ:
-{context}
 
-ВОПРОС: {question}
+@st.cache_data(ttl=30)
+def fetch_concept_alerts():
+    try:
+        response = requests.get(f"{API_URL}/monitoring/concept-alerts", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return []
 
-ИНСТРУКЦИЯ:
-1. Проанализируй контекст. Если информация представлена в виде списка, таблицы или расписания — изучи каждую строку.
-2. Если в тексте упоминаются похожие термины (например, "питание" вместо "завтрак"), используй их для ответа.
-3. Если ответ найден частично, напиши то, что удалось найти.
-4. Сначала кратко опиши, что ты нашел в документах, а затем дай итоговый ответ.
 
-ОТВЕТ:"""
+def render_drift_panel():
+    # Блок отображения уведомлений о дрейфе с кнопками
+    # "Скачать отчет" и "Обновить базу знаний"
+    alerts = fetch_alerts()
+    concept_alerts = fetch_concept_alerts()
+
+    has_drift = any(a.get("drift_detected") for a in alerts)
+    has_concept_drift = any(a.get("concept_drift_detected") for a in concept_alerts)
+
+    # Показываем панель если есть хоть один дрейф
+    if has_drift or has_concept_drift:
+        if has_drift:
+            latest_alert = alerts[0]
+            score = latest_alert.get("drift_score", "N/A")
+            threshold = latest_alert.get("threshold", "N/A")
+            recommendation = latest_alert.get("recommendation", "Проверьте данные")
+            timestamp = latest_alert.get("timestamp", "N/A")
+
+            st.error("**Обнаружен дрейф запросов!**")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Drift Score", f"{score}")
+                st.metric("Threshold", f"{threshold}")
+            with col2:
+                st.metric("Time", timestamp[:16] if timestamp != "N/A" else "N/A")
+                st.info(f"{recommendation}")
+
+    if has_concept_drift:
+        latest = concept_alerts[0]
+        st.warning("**Обнаружен Concept Drift - падение качества генерации!**")
+        issues = latest.get("issues", [])
+        for issue in issues:
+            st.error(f"{issue}")
+
+        metrics = latest.get("metrics", {})
+        cols = st.columns(3)
+        if "dislike_rate" in metrics:
+            cols[0].metric("Дизлайков", f"{metrics['dislike_rate']:.0%}")
+        if "avg_faithfulness" in metrics:
+            cols[1].metric("Faithfulness", metrics["avg_faithfulness"])
+        if "avg_answer_relevancy" in metrics:
+            cols[2].metric("Relevancy", metrics["avg_answer_relevancy"])
+
+        st.info(latest.get("recommendation", ""))
+
+    # Кнопки "Скачать отчет" и "Обновить базу знаний"
+    st.markdown("---")
+    col_report, col_retrain, col_refresh = st.columns([2, 2, 1])
+
+    with col_report:
+        if st.button("Скачать отчет", use_container_width=True):
+            with st.spinner("Генерирую отчет..."):
+                try:
+                    resp = requests.get(f"{API_URL}/monitoring/report", timeout=30)
+                    resp.raise_for_status()
+                    st.download_button(
+                        label="Сохранить HTML-отчет",
+                        data=resp.content,
+                        file_name="drift_report.html",
+                        mime="text/html",
+                        use_container_width=True,
+                    )
+                except requests.RequestException as e:
+                    st.error(f"Не удалось получить отчет: {e}")
+
+    with col_retrain:
+        _render_retrain_button()
+
+    with col_refresh:
+        if st.button(
+            "Обновить статус", help="Обновить статус", use_container_width=True
+        ):
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+
+def _render_retrain_button():
+    """Кнопка "Обновить базу знаний" со статусом"""
+    # Проверяем текущий статус
+    retrain_status = st.session_state.get("retrain_status", {})
+    is_running = retrain_status.get("status") == "running"
+
+    if is_running:
+        # Обновляем статус с бэкенда
+        try:
+            resp = requests.get(f"{API_URL}/retrain/status", timeout=5)
+            current = resp.json()
+            st.session_state["retrain_status"] = current
+            if current["status"] == "running":
+                st.warning("Обновление базы знаний выполняется...")
+                return
+        except requests.RequestException:
+            pass
+
+    if st.button("Обновить базу знаний", use_container_width=True, disabled=is_running):
+        with st.spinner("Запускаю обновление базы знаний..."):
+            try:
+                resp = requests.post(f"{API_URL}/retrain", timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                st.session_state["retrain_status"] = {"status": "running"}
+
+                if data.get("status") == "already_running":
+                    st.warning("Обновление базы знаний уже запущено")
+                else:
+                    st.success("Обновление базы знаний запущено!")
+                    st.caption(data.get("message", ""))
+            except requests.RequestException as e:
+                st.error(f"Ошибка: {e}")
+
+    # Показываем результат прошлого запуска
+    if retrain_status.get("status") == "done":
+        st.success(f"Завершено: {retrain_status.get('finished_at', '')[:16]}")
+    elif retrain_status.get("status") == "error":
+        st.error(f"Ошибка {retrain_status.get('message', '')}")
 
 
 def main():
+    # Панель дрейфа (с кнопками)
+    render_drift_panel()
+
     st.title("Школьный ИИ-ассистент")
     st.markdown(
         "RAG-система для быстрого поиска информации по базе знаний школы: "
         "расписание, питание, правила, контакты и многое другое."
     )
-    
+
     # Боковая панель с настройками
     with st.sidebar:
         st.header("Настройки")
-        
+
         # Выбор языковой модели
         selected_model = st.selectbox(
-            "Языковая модель",
-            options=AVAILABLE_MODELS,
-            index=0
+            "Языковая модель", options=AVAILABLE_MODELS, index=0
         )
         st.info(f"Модель: {selected_model}")
         st.info("База: ChromaDB (multilingual-e5-small)")
-        
+
         k_retrieval = st.slider("Количество документов для поиска", 1, 12, 8)
 
         st.divider()
-        
+
         # Список готовых вопросов для быстрого старта
         st.subheader("Примеры вопросов")
         example_questions = [
             "Во сколько начинается первый урок?",
             "Когда весенние каникулы?",
             "Зачем нужна внеурочная деятельность?",
-            "Как связаться с директором?",
-            "Что на завтрак в 5 классе?",
+            "Какой номер телефона директора?",
             "Какие правила поведения для родителей?",
         ]
-        
-        # При клике на кнопку сохраняем вопрос в session_state, 
+
+        # При клике на кнопку сохраняем вопрос в session_state,
         # он будет подставлен в поле ввода как будто пользователь написал его сам
         for eq in example_questions:
             if st.button(eq, use_container_width=True):
                 st.session_state["prefill_question"] = eq
-                
+
         st.divider()
         if st.button("Очистить историю", use_container_width=True):
             st.session_state.messages = []
@@ -97,15 +199,66 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    for message in st.session_state.messages:
+    for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            # Если в сообщении ассистента есть источники, то показываем их в раскрывающемся блоке
             if "sources" in message and message["sources"]:
                 with st.expander("Источники"):
                     for idx, source in enumerate(message["sources"]):
-                        st.markdown(f"**{idx + 1}. {source['source']}**")
-                        st.caption(source['content'][:300] + "...")
+                        st.markdown(f"**{idx + 1}.{source['source']}**")
+                        st.caption(source["content"][:300] + "...")
+
+            # Кнопки лайк/дизлайк только для сообщений ассистента
+            if message["role"] == "assistant" and "request_id" in message:
+                feedback_key = f"feedback_{message['request_id']}"
+
+                # Показываем кнопки только если ещё не оценено
+                if feedback_key not in st.session_state:
+                    col1, col2, col3 = st.columns([1, 1, 8])
+                    with col1:
+                        if st.button("👍", key=f"like_{i}"):
+                            try:
+                                requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "request_id": message["request_id"],
+                                        "question": st.session_state.messages[i - 1][
+                                            "content"
+                                        ],
+                                        "answer": message["content"],
+                                        "rating": 1,
+                                    },
+                                    timeout=10,
+                                )
+                                st.session_state[feedback_key] = "like"
+                                st.rerun()
+                            except requests.RequestException:
+                                st.error("Не удалось отправить оценку")
+                    with col2:
+                        if st.button("👎", key=f"dislike_{i}"):
+                            try:
+                                requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "request_id": message["request_id"],
+                                        "question": st.session_state.messages[i - 1][
+                                            "content"
+                                        ],
+                                        "answer": message["content"],
+                                        "rating": 0,
+                                    },
+                                    timeout=10,
+                                )
+                                st.session_state[feedback_key] = "dislike"
+                                st.rerun()
+                            except requests.RequestException:
+                                st.error("Не удалось отправить оценку")
+                else:
+                    # Показываем результат оценки
+                    if st.session_state[feedback_key] == "like":
+                        st.caption("Вы оценили ответ положительно")
+                    else:
+                        st.caption("Вы оценили ответ отрицательно")
 
     prefill = st.session_state.pop("prefill_question", None)
 
@@ -121,65 +274,58 @@ def main():
 
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            full_response = ""
 
             with st.spinner("Ищу информацию в базе знаний..."):
                 try:
-                    # Загружаем базу знаний и инициализируем модель
-                    vector_store = load_knowledge_base()
-                    model = OllamaLLM(model=selected_model, temperature=0.1)
-                    
-                    # Настраиваем retriever для поиска похожих документов
-                    retriever = vector_store.as_retriever(
-                        search_type="similarity",
-                        search_kwargs={"k": k_retrieval}
+                    response = requests.post(
+                        f"{API_URL}/ask",
+                        json={
+                            "question": question,
+                            "model": selected_model,
+                            "k_retrieval": k_retrieval,
+                        },
+                        timeout=300,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                    full_response = data["answer"]
+                    sources_data = data["sources"]
+                    latency = data["latency"]
+
+                    # Эффект печатания
+                    displayed = ""
+                    for chunk in full_response.split():
+                        displayed += chunk + " "
+                        time.sleep(0.02)
+                        message_placeholder.markdown(displayed + "▌")
+                    message_placeholder.markdown(displayed)
+
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": displayed,
+                            "sources": sources_data,
+                            "request_id": data["request_id"],
+                        }
                     )
 
-                    prompt = ChatPromptTemplate.from_template(TEMPLATE)
-                    chain = prompt | model
-                    
-                    # Извлекаем релевантные документы и формируем контекст
-                    docs = retriever.invoke(question)
-                    context_text = "\n\n".join([
-                        f"[Источник: {d.metadata.get('source', 'Неизвестно')}]\n{d.page_content}"
-                        for d in docs
-                    ])
-                    
-                    # Ответ от модели
-                    response = chain.invoke({"context": context_text, "question": question})
-                    
-                    # Вывод ответа с эффектом печатания
-                    for chunk in response.split():
-                        full_response += chunk + " "
-                        time.sleep(0.02)
-                        message_placeholder.markdown(full_response + "▌")
-                    message_placeholder.markdown(full_response)
-                    
-                    sources_data = [
-                        {
-                            "source": doc.metadata.get("source", "Неизвестно"),
-                            "content": doc.page_content
-                        }
-                        for doc in docs
-                    ]
-                    
-                    # Сохраняем ответ ассистента в историю
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": full_response,
-                        "sources": sources_data
-                    })
-                    
                     with st.expander("Найденные фрагменты документов"):
-                        for idx, doc in enumerate(docs):
-                            st.markdown(f"**Фрагмент {idx + 1}:** `{doc.metadata.get('source', 'Неизвестно')}`")
-                            st.caption(doc.page_content[:400] + "...")
-                            if idx < len(docs) - 1:
+                        for idx, source in enumerate(sources_data):
+                            st.markdown(f"**Фрагмент {idx + 1}:** `{source['source']}`")
+                            st.caption(source["content"][:400] + "...")
+                            if idx < len(sources_data) - 1:
                                 st.divider()
 
-                except Exception as e:
-                    st.error(f"Ошибка: {e}")
-                    st.info("Убедитесь, что Ollama запущена и ChromaDB находится по пути chroma_langchain_db")
+                    st.caption(f"Задержка: {latency:.2f}с | Модель: {selected_model}")
+
+                except requests.RequestException as e:
+                    st.error(f"Ошибка подключения к API: {e}")
+                    st.info("Убедитесь, что FastAPI запущен: uvicorn api:app --reload")
+                else:
+                    # Перезапускаем скрипт, чтобы цикл отрисовки сверху
+                    # подхватил новое сообщение и отобразил кнопки лайк/дизлайк
+                    st.rerun()
 
 
 if __name__ == "__main__":

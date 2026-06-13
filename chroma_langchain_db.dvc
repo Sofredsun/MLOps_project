@@ -1,0 +1,6 @@
+outs:
+- md5: 87a60c8cf3250094a50767959ed72a93.dir
+  size: 29132772
+  nfiles: 2
+  hash: md5
+  path: chroma_langchain_db
