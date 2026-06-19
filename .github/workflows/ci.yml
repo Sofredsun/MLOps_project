@@ -85,6 +85,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set lowercase image name
+        id: image-name
+        run: |
+          IMAGE_NAME_LC=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "name=${IMAGE_NAME_LC}" >> $GITHUB_OUTPUT
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -96,13 +102,13 @@ jobs:
         id: sha-tag
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "tag=${{ env.REGISTRY }}/${{ steps.image-name.outputs.name }}:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.name }}
           tags: |
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -204,4 +210,4 @@ jobs:
           kubectl get pods -n school-rag -o wide
           kubectl describe pods -n school-rag
           kubectl logs -l app=school-rag-api -n school-rag --tail=50 || true
-          kubectl logs -l app=school-rag-ui -n school-rag --tail=50 || true   
+          kubectl logs -l app=school-rag-ui -n school-rag --tail=50 || true
